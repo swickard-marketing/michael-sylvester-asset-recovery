@@ -1,0 +1,131 @@
+<!-- Start of Pre-Owned Email Content -->
+<table align="center" cellspacing="0" cellpadding="0" width="100%" style="mso-table-lspace:0pt; mso-table-rspace:0pt; border-collapse:collapse; border-spacing:0px; width:100%; table-layout:fixed !important; background-color:transparent;">
+    <tr>
+      <td align="center" style="padding:0; Margin:0;">
+        <!-- Hero Image Section -->
+        <table cellspacing="0" cellpadding="0" bgcolor="#ffffff" align="center" width="600" style="mso-table-lspace:0pt; mso-table-rspace:0pt; border-collapse:collapse; border-spacing:0px; background-color:#FFFFFF; width:100%; max-width:600px;">
+          <tr>
+            <td align="left" style="padding:0; Margin:0;">
+              <table cellspacing="0" cellpadding="0" width="100%" style="mso-table-lspace:0pt; mso-table-rspace:0pt; border-collapse:collapse; border-spacing:0px;">
+                <tr>
+                  <td valign="top" align="center" style="padding:0; Margin:0; width:100%;">
+                    <table width="100%" cellspacing="0" cellpadding="0" style="mso-table-lspace:0pt; mso-table-rspace:0pt; border-collapse:collapse; border-spacing:0px;">
+                      <tr>
+                        <td align="center" style="padding:0; Margin:0;">
+                          {% comment %}Determine vehicle make{% endcomment %}
+                          {% for attribute in customer %}
+                            {% if attribute[0] == 'Desired-Make' %}{% assign desired_make = attribute[1] %}
+                            {% elsif attribute[0] == 'Vehicle-Make' %}{% assign vehicle_make = attribute[1] %}
+                            {% elsif attribute[0] == 'DMS-Make' %}{% assign dms_make = attribute[1] %}{% endif %}
+                          {% endfor %}
+                          
+                          {% if desired_make != '' %}{% assign vehicleMake = desired_make %}
+                          {% elsif vehicle_make != '' %}{% assign vehicleMake = vehicle_make %}
+                          {% elsif dms_make != '' %}{% assign vehicleMake = dms_make %}
+                          {% else %}{% assign vehicleMake = "Default" %}{% endif %}
+                          
+                          {% if vehicleMake == "Audi" %}
+                            <a target="_blank" href="https://www.audiofanchorage.com/last-chance-specials.htm" style="mso-line-height-rule:exactly; text-decoration:underline; color:#2CB543; font-size:14px;">
+                              <img src="https://userimg-assets.customeriomail.com/images/client-env-164862/1747258677330_Audi%20Semi%20Annual%20Sales%20Event%20Logo_01JV8BQ520CBCBW9M0PFBEV5JN.jpg" alt="Audi Pre-Owned Specials" title="Audi Pre-Owned Specials" width="600" style="display:block; font-size:14px; border:0; outline:none; text-decoration:none; width:100%; max-width:600px; height:auto;">
+                            </a>
+                          {% elsif vehicleMake == "Porsche" %}
+                            <a target="_blank" href="https://www.porscheanchorage.com/last-chance-specials.html" style="mso-line-height-rule:exactly; text-decoration:underline; color:#2CB543; font-size:14px;">
+                              <img src="https://userimg-assets.customeriomail.com/images/client-env-164893/1747423642053_shutterstock_1365446222_01JVD91HBHNQ60HGX6P8R2RE7Y.jpg" alt="Porsche Pre-Owned Specials" title="Porsche Pre-Owned Specials" width="600" style="display:block; font-size:14px; border:0; outline:none; text-decoration:none; width:100%; max-width:600px; height:auto;">
+                            </a>
+                          {% elsif vehicleMake == "Volkswagen" or vehicleMake == "VW" %}
+                            <a target="_blank" href="https://www.volkswagenanchorage.com/last-chance-specials.html" style="mso-line-height-rule:exactly; text-decoration:underline; color:#2CB543; font-size:14px;">
+                              <img src="https://userimg-assets.customeriomail.com/images/client-env-164864/1747345706392_VW%20Semi%20Annual%20Sales%20Event%20Logo_01JVAYQ2R7K0CW60B1QX7G90NP.png" alt="Volkswagen Pre-Owned Specials" title="Volkswagen Pre-Owned Specials" width="600" style="display:block; font-size:14px; border:0; outline:none; text-decoration:none; width:100%; max-width:600px; height:auto;">
+                            </a>
+                          {% else %}
+                            <a target="_blank" href="https://www.audiofanchorage.com/last-chance-specials.htm" style="mso-line-height-rule:exactly; text-decoration:underline; color:#2CB543; font-size:14px;">
+                              <img src="https://userimg-assets.customeriomail.com/images/client-env-164862/1747258677330_Audi%20Semi%20Annual%20Sales%20Event%20Logo_01JV8BQ520CBCBW9M0PFBEV5JN.jpg" alt="Pre-Owned Specials" title="Pre-Owned Specials" width="600" style="display:block; font-size:14px; border:0; outline:none; text-decoration:none; width:100%; max-width:600px; height:auto;">
+                            </a>
+                          {% endif %}
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+        
+        <!-- Black Content Section -->
+        <table cellspacing="0" cellpadding="0" bgcolor="#efefef" align="center" width="600" style="mso-table-lspace:0pt; mso-table-rspace:0pt; border-collapse:collapse; border-spacing:0px; background-color:#efefef; width:100%; max-width:600px;">
+          <tr>
+            <td bgcolor="#000000" align="left" style="Margin:0; padding-top:20px; padding-right:20px; padding-bottom:35px; padding-left:20px; background-color:#000000;">
+              <table align="right" cellspacing="0" cellpadding="0" width="100%" style="mso-table-lspace:0pt; mso-table-rspace:0pt; border-collapse:collapse; border-spacing:0px;">
+                <tr>
+                  <td align="left" style="padding:0; Margin:0; width:100%;">
+                    <table cellpadding="0" width="100%" cellspacing="0" style="mso-table-lspace:0pt; mso-table-rspace:0pt; border-collapse:collapse; border-spacing:0px;">
+                      <tr>
+                        <td align="left" style="padding:0; Margin:0; padding-bottom:30px;">
+                          <h1 style="Margin:0; font-family:helvetica, 'helvetica neue', arial, verdana, sans-serif; mso-line-height-rule:exactly; letter-spacing:0; font-size:36px; font-style:normal; font-weight:normal; line-height:1.2; color:#ffffff;">
+                            {% if customer["pre-owned-recs"].size > 0 %}
+                              <strong>{{ customer["pre-owned-recs"][0].Luxury_Body_Title }}</strong>
+                            {% else %}
+                              <strong>Premium Pre-Owned Selection</strong>
+                            {% endif %}
+                          </h1>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td align="left" style="padding:0; Margin:0;">
+                          <h3 style="Margin:0; font-family:helvetica, 'helvetica neue', arial, verdana, sans-serif; mso-line-height-rule:exactly; letter-spacing:0; font-size:14px; font-style:normal; font-weight:normal; line-height:1.5; color:#ffffff;">
+                            {% if customer["pre-owned-recs"].size > 0 %}
+                              {{ customer["pre-owned-recs"][0].Luxury_Body }}
+                            {% else %}
+                              Discover our carefully selected inventory of premium pre-owned vehicles. Each vehicle in our collection has undergone rigorous inspection to ensure it meets exceptional standards.
+                            {% endif %}
+                          </h3>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          
+          <!-- Button Section -->
+          <tr>
+            <td align="left" bgcolor="#000000" style="padding:20px; Margin:0; background-color:#000000;">
+              <table cellpadding="0" cellspacing="0" width="100%" style="mso-table-lspace:0pt; mso-table-rspace:0pt; border-collapse:collapse; border-spacing:0px;">
+                <tr>
+                  <td align="center" style="padding:0; Margin:0; width:100%;">
+                    <table width="100%" role="presentation" cellpadding="0" cellspacing="0" style="mso-table-lspace:0pt; mso-table-rspace:0pt; border-collapse:collapse; border-spacing:0px;">
+                      <tr>
+                        <td align="center" style="padding:0; Margin:0; padding-bottom:15px;">
+                          <span style="border-style:solid; border-color:#ffffff; background:#000000; border-width:0px; display:inline-block; border-radius:5px; width:auto; border-top:2px solid #ffffff; border-right:2px solid #ffffff; border-bottom:2px solid #ffffff; border-left:2px solid #ffffff;">
+                            {% assign cta_link = "https://www.audiofanchorage.com/last-chance-specials.htm" %}
+                            
+                            {% if vehicleMake == "Audi" %}
+                              {% assign cta_link = "https://www.audiofanchorage.com/last-chance-specials.htm" %}
+                            {% elsif vehicleMake == "Porsche" %}
+                              {% assign cta_link = "https://www.porscheanchorage.com/last-chance-specials.html" %}
+                            {% elsif vehicleMake == "Volkswagen" or vehicleMake == "VW" %}
+                              {% assign cta_link = "https://www.volkswagenanchorage.com/last-chance-specials.html" %}
+                            {% endif %}
+                            
+                            <a target="_blank" href="{{ cta_link }}" style="mso-style-priority:100 !important; text-decoration:none !important; mso-line-height-rule:exactly; color:#ffffff; font-size:18px; padding:15px 30px; display:inline-block; background:#000000; border-radius:5px; font-family:helvetica, 'helvetica neue', arial, verdana, sans-serif; font-weight:normal; font-style:normal; line-height:21.6px; width:auto; text-align:center; letter-spacing:0; mso-padding-alt:0; mso-border-alt:10px solid #000000;">
+                              {% if customer["pre-owned-recs"].size > 0 %}
+                                {{ customer["pre-owned-recs"][0].Luxury_CTA }}
+                              {% else %}
+                                View Pre-Owned Inventory
+                              {% endif %}
+                            </a>
+                          </span>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+  <!-- End of Pre-Owned Email Content -->

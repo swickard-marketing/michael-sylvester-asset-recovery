@@ -1,0 +1,58 @@
+<!-- Header Snippet Start -->
+<!--[if !mso]><!-->
+<style>
+    @media screen and (min-width: 601px) {
+        .mobile-only { display: none !important; }
+        .desktop-only { display: table !important; }
+    }
+    @media screen and (max-width: 600px) {
+        .mobile-only { display: table !important; }
+        .desktop-only { display: none !important; }
+    }
+</style>
+<!--<![endif]-->
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 600px; margin: 0 auto;">
+    <tr>
+        <td align="center" style="background-color: #000000; padding: 26px 20px;">
+            <!-- Desktop Version -->
+            <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" class="desktop-only">
+                <tr>
+                    <td>
+                        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
+                            <tr>
+                                <td align="left" width="70%" style="padding-right: 10px;">
+                                    <a href="https://www.swickardacuraofthousandoaks.com/" target="_blank" style="color: inherit; text-decoration: none; display: block;">
+                                        <img title="Swickard Acura Thousand Oaks" src="https://enfoilk.stripocdn.email/content/guids/CABINET_971bbb5f59a2c161fb05ba832ab86ebe1f403e5848147dc274ffbe517bb95474/images/swickard_acura_of_thousand_oaks_w_1_1_qB6.png" alt="Swickard Acura Thousand Oaks" width="340" style="display: block; width: 100%; max-width: 340px; height: auto;">
+                                    </a>
+                                </td>
+                                <td align="right" width="30%" style="padding-left: 10px;">
+                                    <a href="https://www.swickard.com" target="_blank" style="color: inherit; text-decoration: none; display: block;">
+                                        <img src="https://www.mbofmarin.com/static/dealer-24032/swickard-sig.gif" alt="Swickard Logo" width="145" style="display: block; width: 100%; max-width: 145px; height: auto;">
+                                    </a>
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+            </table>
+            <!-- Mobile Version -->
+            <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" class="mobile-only">
+                <tr>
+                    <td align="center" style="padding-bottom: 20px;">
+                        <a href="https://www.swickardacuraofthousandoaks.com/" target="_blank" style="color: inherit; text-decoration: none; display: block;">
+                            <img title="Swickard Acura Thousand Oaks" src="https://enfoilk.stripocdn.email/content/guids/CABINET_971bbb5f59a2c161fb05ba832ab86ebe1f403e5848147dc274ffbe517bb95474/images/swickard_acura_of_thousand_oaks_w_1_1_qB6.png" alt="Swickard Acura Thousand Oaks" width="300" style="display: block; width: 100%; max-width: 300px; height: auto;">
+                        </a>
+                    </td>
+                </tr>
+                <tr>
+                    <td align="center">
+                        <a href="https://www.swickard.com" target="_blank" style="color: inherit; text-decoration: none; display: block;">
+                            <img src="https://swickard.com/wp-content/uploads/2024/07/240748-Swickard-Logo-Approved.png" alt="Swickard Logo" width="120" style="display: block; width: 100%; max-width: 120px; height: auto;">
+                        </a>
+                    </td>
+                </tr>
+            </table>
+        </td>
+    </tr>
+</table>
+<!-- Header Snippet End -->

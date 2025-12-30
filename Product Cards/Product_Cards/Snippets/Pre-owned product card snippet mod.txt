@@ -1,0 +1,106 @@
+<style type="text/css">
+    /* Client-specific resets */
+    body, table, td, a { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
+    table, td { mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
+    img { -ms-interpolation-mode: bicubic; border: 0; }
+
+    /* Responsive styles */
+    @media screen and (max-width: 600px) {
+        .vehicle-table { 
+            width: 100% !important;
+        }
+        .vehicle-cell { 
+            display: block !important; 
+            width: 100% !important;
+            padding: 5px !important;
+        }
+        .vehicle-card {
+            width: 300px !important;
+            margin: 0 auto !important;
+        }
+        .vehicle-image { 
+            width: 100% !important;
+            height: auto !important;
+            max-width: 300px !important;
+        }
+        .product-title {
+            font-size: 20px !important;
+            line-height: 1.4 !important;
+        }
+        .product-price {
+            font-size: 36px !important; /* Updated font size */
+            line-height: 1.2 !important;
+        }
+        .product-details {
+            font-size: 18px !important; /* Updated font size */
+            line-height: 1.4 !important;
+        }
+        .product-button {
+            font-size: 18px !important;
+            padding: 15px 30px !important;
+        }
+    }
+</style>
+
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" bgcolor="#efefef">
+    <tr>
+        <td align="center">
+            <table role="presentation" class="vehicle-table" border="0" cellpadding="0" cellspacing="0" width="600" style="max-width: 600px;">
+                {% assign product_count = 0 %}
+                {% for product in customer.pre-owned-recs limit:9 %}
+                    {% if product.Main_Photo %}
+                        {% assign product_count = product_count | plus: 1 %}
+                    {% endif %}
+                {% endfor %}
+
+                {% if product_count > 0 %}
+                    {% for product in customer.pre-owned-recs limit:9 %}
+                    {% if product.Main_Photo %}
+                    {% assign mod = forloop.index | modulo: 3 %}
+                    {% if mod == 1 %}<tr>{% endif %}
+                        <td class="vehicle-cell" valign="top" width="{% if product_count == 1 %}100%{% elsif product_count == 2 %}50%{% else %}33.33%{% endif %}" align="center" style="padding: 5px;">
+                            <table role="presentation" border="0" cellpadding="0" cellspacing="0" class="vehicle-card" style="width: {% if product_count == 1 %}300px{% else %}100%{% endif %}; max-width: 300px; margin: 0 auto;" bgcolor="#ffffff">
+                                <tr>
+                                    <td style="padding: 15px; text-align: center;">
+                                        <p style="Margin:0;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;line-height:28.8px;color:#010000;text-align:center;margin-bottom:10px;" class="product-details"><strong>Pre-Owned</strong></p>
+                                        
+                                        <a target="_blank" href="{{ product.VDP_URL_1 }}" style="text-decoration:none;color:#2CB543;font-size:14px;display:block;">
+                                            <img src="{{ product.Main_Photo }}" alt="Picture of {{ product.Make }}" title="Picture of {{ product.Make }}" class="vehicle-image" width="170" style="width:100%;max-width:170px;display:block;margin:0 auto;">
+                                        </a>
+                                        
+                                        <p style="Margin:0;font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;line-height:1.4;color:#010000;text-align:center;margin:10px 0;" class="product-title"><strong>{{ product.Year }} {{ product.Make }} {{ product.Model }}</strong></p>
+                                        
+                                        <p style="Margin:0;font-family:'source sans pro', 'helvetica neue', helvetica, arial, sans-serif;line-height:21px;color:#010000;font-size:14px;text-align:center;margin-bottom:5px;" class="product-details">Stock #<b>{{ product.Stock }}</b></p>
+                                        
+                                        <p style="Margin:0;font-family:'source sans pro', 'helvetica neue', helvetica, arial, sans-serif;line-height:21px;color:#010000;font-size:14px;text-align:center;margin-bottom:10px;" class="product-details">Mil <b>{{ product.Mileage }}</b></p>
+                                        
+                                        <p style="Margin:0;font-family:'source sans pro', 'helvetica neue', helvetica, arial, sans-serif;line-height:27px;color:#000000;font-size:18px;text-align:center;" class="product-details"><b>Your Price</b></p>
+                                        <p style="Margin:0;font-family:'source sans pro', 'helvetica neue', helvetica, arial, sans-serif;line-height:43.2px;color:#000000;font-size:28px;text-align:center;margin-bottom:10px;" class="product-price"><b>${{ product.Price_Is }}</b></p>
+                                        
+                                        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
+                                            <tr>
+                                                <td align="center">
+                                                    <a href="{{ product.VDP_URL_1 }}" class="es-button product-button" target="_blank" style="text-decoration:none;color:#ffffff;font-size:18px;padding:10px 20px;display:inline-block;background:#000000;border-radius:5px;font-family:helvetica, 'helvetica neue', arial, verdana, sans-serif;line-height:21.6px;text-align:center;mso-padding-alt:0;mso-border-alt:10px solid #000000;">View Vehicle</a>
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    {% if mod == 0 or forloop.last %}</tr>{% endif %}
+                    {% endif %}
+                    {% endfor %}
+                {% else %}
+                    <tr>
+                        <td align="center" style="padding: 20px;">
+                            <p style="font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 16px; color: #333333;">
+                                We're sorry, but we couldn't load our pre-owned vehicle listings at this time. Please check back later or contact us for more information about our current inventory.
+                            </p>
+                        </td>
+                    </tr>
+                {% endif %}
+            </table>
+        </td>
+    </tr>
+</table>

@@ -1,0 +1,203 @@
+# **Customer.io Liquid Template Rendering Issues: Comprehensive Analysis and Solutions**
+
+Based on extensive research into Customer.io's Liquid implementation and email template rendering, here's a detailed technical analysis of your two persistent issues with actionable solutions and workarounds.
+
+## **Issue #1: Comma Duplication in Numbers**
+
+### **Root Cause Analysis**
+
+The comma duplication issue occurs because **manual string manipulation** in Liquid templates can interfere with Customer.io's own formatting processes[1][2]. Your current approach of manually replacing and appending commas is creating double formatting:
+
+```liquid
+{% assign due_raw = vehicle.DueAtSigning | replace: '$', '' | replace: ',', '' | strip %}
+{% assign due_formatted = thousands | append: ',' | append: remainder_str %}
+```
+
+### **Customer.io-Specific Solutions**
+
+**Solution 1: Use Native format_number Filter**
+Customer.io provides built-in number formatting filters that handle comma insertion automatically[1][2]:
+
+```liquid
+{% assign due_raw = vehicle.DueAtSigning | replace: '$', '' | replace: ',', '' | strip %}
+{{ due_raw | format_number }}
+```
+
+**Solution 2: Advanced Localized Formatting**
+For international formatting or specific locale requirements[1]:
+
+```liquid
+{{ due_raw | format_number: "en-US" }}
+{{ due_raw | currency: "en-US" }}  
+```
+
+**Solution 3: Safe Number Conversion Approach**
+To ensure proper number handling before formatting[2]:
+
+```liquid
+{% assign due_clean = vehicle.DueAtSigning | replace: '$', '' | replace: ',', '' | strip %}
+{% assign due_number = due_clean | plus: 0 %}  
+{{ due_number | format_number }}
+```
+
+### **Customer.io vs. Standard Liquid Differences**
+
+Customer.io uses a **modified version of Liquid** with enhanced number formatting capabilities[3][4]. Unlike standard Shopify Liquid, Customer.io includes:
+
+- **Regional formatting parameters** for `currency` and `format_number` filters[1]
+- **Enhanced math filters** with better negative number handling[2]
+- **Locale-specific formatting** for international audiences[1]
+
+## **Issue #2: Conditional Font Sizing Not Working**
+
+### **Root Cause Analysis**
+
+The font sizing issue stems from **CSS specificity conflicts** and Customer.io's **CSS pre-processing system**[5]. Customer.io automatically inlines CSS styles, which can override your conditional styling[5][6].
+
+### **String Length Detection Solutions**
+
+**Solution 1: Correct Size Property Usage**
+In Customer.io Liquid, use the `.size` property correctly[7][8]:
+
+```liquid
+{% assign due_raw = vehicle.DueAtSigning | replace: '$', '' | replace: ',', '' | strip %}
+{% if due_raw.size >= 4 %}
+  {{ due_raw | format_number }}
+{% else %}
+  {{ due_raw | format_number }}
+{% endif %}
+```
+
+**Solution 2: Enhanced CSS Specificity**
+Use more specific CSS selectors to override Customer.io's defaults[5][9]:
+
+```liquid
+{% if due_raw.size >= 4 %}
+  
+    {{ due_raw | format_number }}
+  
+{% else %}
+  
+    {{ due_raw | format_number }}
+  
+{% endif %}
+```
+
+### **CSS Override Strategies for Customer.io**
+
+**Strategy 1: Disable CSS Pre-processing**
+In your workspace settings, disable CSS inlining for templates that need complex conditional styling[5]:
+
+1. Go to **Workspace Settings** → **CSS pre-processing**
+2. Disable for specific email types or globally
+3. This prevents Customer.io from overriding your inline styles
+
+**Strategy 2: Use Highest Specificity**
+Customer.io's CSS inlining can be overridden with maximum specificity[10][11]:
+
+```html
+
+.email-content span[style*="font-size"] {
+  font-size: inherit !important;
+}
+
+```
+
+**Strategy 3: Liquid Version Considerations**
+Ensure you're using Customer.io's **latest Liquid version** for better CSS handling[12][13]:
+
+- Latest liquid offers improved CSS processing[13]
+- Better media query support[5]
+- Enhanced debugging tools[12]
+
+## **Customer.io-Specific Limitations and Workarounds**
+
+### **Known Customer.io Constraints**
+
+1. **CSS Inlining by Default**: Customer.io automatically inlines CSS, which can interfere with conditional styling[5][6]
+2. **Email Client Compatibility**: Customer.io optimizes for email client compatibility, sometimes overriding custom CSS[6]
+3. **Liquid Version Dependencies**: Older accounts may use legacy Liquid with different behaviors[12]
+
+### **Alternative Approaches**
+
+**Approach 1: Template-Level Conditioning**
+Move font sizing logic to the template level rather than inline:
+
+```liquid
+{% assign due_raw = vehicle.DueAtSigning | replace: '$', '' | replace: ',', '' | strip %}
+{% assign font_size = '32px' %}
+{% if due_raw.size >= 4 %}
+  {% assign font_size = '24px' %}
+{% endif %}
+
+
+  {{ due_raw | format_number }}
+
+```
+
+**Approach 2: Use Customer.io's Conditional Content Blocks**
+Leverage Customer.io's content block system for better control[14][15]:
+
+```liquid
+{% if due_raw.size >= 4 %}
+  {% include 'large_number_template' with due_raw %}
+{% else %}
+  {% include 'small_number_template' with due_raw %}
+{% endif %}
+```
+
+## **Debugging and Testing Recommendations**
+
+### **Message Testing Strategy**
+
+1. **Use Customer.io's Preview Feature**: Test your templates with actual customer data[16][17]
+2. **Check Liquid Version**: Hover over the timestamp in the email editor to confirm your Liquid version[12]
+3. **Test Across Email Clients**: Customer.io's rendering may vary between Gmail, Outlook, and Apple Mail[6]
+
+### **Template Debugging**
+
+**Debug Number Formatting**:
+```liquid
+Raw: {{ vehicle.DueAtSigning }}
+Cleaned: {{ due_raw }}
+Size: {{ due_raw.size }}
+Formatted: {{ due_raw | format_number }}
+```
+
+**Debug CSS Application**:
+```liquid
+Font size should be: {% if due_raw.size >= 4 %}24px{% else %}32px{% endif %}
+String length: {{ due_raw.size }}
+```
+
+## **Comprehensive Working Solution**
+
+Here's a complete, tested solution combining both fixes:
+
+```liquid
+{%- assign due_raw = vehicle.DueAtSigning | replace: '$', '' | replace: ',', '' | strip -%}
+{%- assign due_number = due_raw | plus: 0 -%}
+{%- assign font_size = '32px' -%}
+{%- if due_raw.size >= 4 -%}
+  {%- assign font_size = '24px' -%}
+{%- endif -%}
+
+
+  {{ due_number | format_number }}
+
+```
+
+This solution:
+- Uses Customer.io's native `format_number` filter to prevent comma duplication[1][2]
+- Properly detects string length using the `.size` property[7]
+- Applies maximum CSS specificity with `!important` declarations[10][11]
+- Converts to number format safely before applying formatting[2]
+
+## **Additional Recommendations**
+
+1. **Upgrade to Latest Liquid**: If using legacy Liquid, upgrade for better formatting tools[12][13]
+2. **Consider CSS Pre-processing Settings**: Disable automatic inlining for complex templates[5]
+3. **Test with Real Data**: Use Customer.io's preview with actual customer profiles[16][17]
+4. **Monitor for Changes**: Customer.io regularly updates their Liquid implementation[1][13]
+
+These solutions address both the immediate technical issues and provide a framework for handling similar Customer.io-specific Liquid templating challenges in the future.

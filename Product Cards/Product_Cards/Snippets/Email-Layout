@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Email Footer</title>
+</head>
+<body style="margin: 0; padding: 0; font-family: Arial, sans-serif;">
+    <!-- We'll replace this content tag with whatever you write in your email  -->
+    {{ content }}
+
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="max-width: 600px; margin: 0 auto; background-color: #ffffff;">
+        <tr>
+            <td style="padding: 30px; text-align: center;">
+                <p style="color: #000000; font-size: 10px; line-height: 1.5; margin-bottom: 10px;">
+                    Proud Member of the Swickard Auto Group Family of Dealerships<br>
+                    View Our Auto Group Inventory <a href="https://www.swickard.com/" style="color: #000000; text-decoration: none;">here</a>.
+                </p>
+                <p style="color: #000000; font-size: 10px; line-height: 1.5; margin-bottom: 10px;">
+                    <a href="{% unsubscribe_url %}" target="_blank" style="color: #000000; text-decoration: none;">Unsubscribe</a>
+                </p>
+                <p style="color: #000000; font-size: 10px; line-height: 1.5; margin-bottom: 10px;">
+                    Not seeing what you're looking for? 
+                    <a href="{% manage_subscription_preferences_url %}" target="_blank" style="color: #000000; text-decoration: none;">Update your preferences <u>here</u></a>.
+                </p>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>

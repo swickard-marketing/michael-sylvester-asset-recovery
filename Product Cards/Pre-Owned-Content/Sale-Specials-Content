@@ -1,0 +1,99 @@
+<!-- Start of Sales-Specs Email Content -->
+<table align="center" cellspacing="0" cellpadding="0" width="100%" style="mso-table-lspace:0pt; mso-table-rspace:0pt; border-collapse:collapse; border-spacing:0px; width:100%; table-layout:fixed !important; background-color:transparent;">
+  <tr>
+    <td align="center" style="padding:0; Margin:0;">
+      <!-- Hero Image Section -->
+      <table cellspacing="0" cellpadding="0" bgcolor="#ffffff" align="center" width="600" style="mso-table-lspace:0pt; mso-table-rspace:0pt; border-collapse:collapse; border-spacing:0px; background-color:#FFFFFF; width:100%; max-width:600px;">
+        <tr>
+          <td align="left" style="padding:0; Margin:0;">
+            <table cellspacing="0" cellpadding="0" width="100%" style="mso-table-lspace:0pt; mso-table-rspace:0pt; border-collapse:collapse; border-spacing:0px;">
+              <tr>
+                <td valign="top" align="center" style="padding:0; Margin:0; width:100%;">
+                  <table width="100%" cellspacing="0" cellpadding="0" style="mso-table-lspace:0pt; mso-table-rspace:0pt; border-collapse:collapse; border-spacing:0px;">
+                    <tr>
+                      <td align="center" style="padding:0; Margin:0;">
+                        <a target="_blank" href="{{customer.Footer-recs[0].New_Specials_url}}" style="mso-line-height-rule:exactly; text-decoration:underline; color:#2CB543; font-size:14px;">
+                          <img src="{{customer.Footer-recs[0].Hero_Image}}" alt=" Sales Specials" title=" Sales Specials" width="600" style="display:block; font-size:14px; border:0; outline:none; text-decoration:none; width:100%; max-width:600px; height:auto;">
+                        </a>
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+      
+      <!-- Black Content Section -->
+      <table cellspacing="0" cellpadding="0" bgcolor="#000000" align="center" width="600" style="mso-table-lspace:0pt; mso-table-rspace:0pt; border-collapse:collapse; border-spacing:0px; background-color:#000000; width:100%; max-width:600px;">
+        <tr>
+          <td align="left" style="Margin:0; padding-top:30px; padding-right:30px; padding-bottom:30px; padding-left:30px; background-color:#000000;">
+            <table align="right" cellspacing="0" cellpadding="0" width="100%" style="mso-table-lspace:0pt; mso-table-rspace:0pt; border-collapse:collapse; border-spacing:0px;">
+              <tr>
+                <td align="left" style="padding:0; Margin:0; width:100%;">
+                  <table cellpadding="0" width="100%" cellspacing="0" style="mso-table-lspace:0pt; mso-table-rspace:0pt; border-collapse:collapse; border-spacing:0px;">
+                    <tr>
+                      <td align="left" style="padding:0; Margin:0; padding-bottom:30px;">
+                        <h1 style="Margin:0; font-family:helvetica, 'helvetica neue', arial, verdana, sans-serif; mso-line-height-rule:exactly; letter-spacing:0; font-size:36px; font-style:normal; font-weight:normal; line-height:1.2; color:#ffffff;">
+                          <strong>{{ customer["Sales-Specs-Recs"][0].Lifestyle_Body_Title }}</strong>
+                        </h1>
+                      </td>
+                    </tr>
+                  </table>
+                  <table cellpadding="0" width="100%" cellspacing="0" style="mso-table-lspace:0pt; mso-table-rspace:0pt; border-collapse:collapse; border-spacing:0px;">
+                    <tr>
+                      <td align="left" style="padding:0; Margin:0; padding-bottom:20px;">
+                        <h3 style="Margin:0; font-family:helvetica, 'helvetica neue', arial, verdana, sans-serif; mso-line-height-rule:exactly; letter-spacing:0; font-size:16px; font-style:normal; font-weight:normal; line-height:1.5; color:#ffffff;">
+                          {{ customer["Sales-Specs-Recs"][0].Lifestyle_Body }}
+                        </h3>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td align="left" style="padding:0; Margin:0; padding-top:20px; padding-bottom:30px;">
+                        <h1 style="Margin:0; font-family:helvetica, 'helvetica neue', arial, verdana, sans-serif; mso-line-height-rule:exactly; letter-spacing:0; font-size:36px; font-style:normal; font-weight:normal; line-height:1.2; color:#ffffff;">
+                          <strong>Ready for Adventure?</strong>
+                        </h1>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td align="left" style="padding:0; Margin:0; padding-bottom:20px;">
+                        <h3 style="Margin:0; font-family:helvetica, 'helvetica neue', arial, verdana, sans-serif; mso-line-height-rule:exactly; letter-spacing:0; font-size:16px; font-style:normal; font-weight:normal; line-height:1.5; color:#ffffff;">
+                          Test Drive a Modified Tacoma/Tundra & Get a Free Camping Package!
+                        </h3>
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        
+        <!-- Button Section -->
+        <tr>
+          <td align="left" style="padding:20px; Margin:0; background-color:#000000;">
+            <table cellpadding="0" cellspacing="0" width="100%" style="mso-table-lspace:0pt; mso-table-rspace:0pt; border-collapse:collapse; border-spacing:0px;">
+              <tr>
+                <td align="center" style="padding:0; Margin:0; width:100%;">
+                  <table width="100%" role="presentation" cellpadding="0" cellspacing="0" style="mso-table-lspace:0pt; mso-table-rspace:0pt; border-collapse:collapse; border-spacing:0px;">
+                    <tr>
+                      <td align="center" style="padding:0; Margin:0; padding-bottom:15px;">
+                        <span style="border-style:solid; border-color:#ffffff; background:#000000; border-width:0px; display:inline-block; border-radius:5px; width:auto; border-top:2px solid #ffffff; border-right:2px solid #ffffff; border-bottom:2px solid #ffffff; border-left:2px solid #ffffff;">
+                          <a target="_blank" href="{{customer.Footer-recs[0].New_Specials_url}}" style="mso-style-priority:100 !important; text-decoration:none !important; mso-line-height-rule:exactly; color:#ffffff; font-size:18px; padding:15px 30px; display:inline-block; background:#000000; border-radius:5px; font-family:helvetica, 'helvetica neue', arial, verdana, sans-serif; font-weight:normal; font-style:normal; line-height:21.6px; width:auto; text-align:center; letter-spacing:0; mso-padding-alt:0; mso-border-alt:10px solid #000000;">
+                            View All Specials
+                          </a>
+                        </span>
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
+    </td>
+  </tr>
+</table>
+<!-- End of Sales-Specs Email Content -->

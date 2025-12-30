@@ -1,0 +1,149 @@
+Name,Campaigns,Segments,Newsletters,People,Last Updated,Liquid Example,Description
+,,,,,,,
+## IDENTIFIERS - Basic customer identification and contact attributes,,,,,,,
+,,,,,,,
+Advisor-Name,0,0,0,8257,1970-01-01T00:00:00Z,{{ customer.Advisor-Name }},Customer's assigned advisor name
+Advisor-Number,0,0,0,8257,1970-01-01T00:00:00Z,{{ customer.Advisor-Number }},Customer's assigned advisor number
+BDC-User-Full-Name,0,0,0,1923,1970-01-01T00:00:00Z,{{ customer.BDC-User-Full-Name }},Business Development Center user assigned to customer
+Business-Unit-Name,0,0,0,15351,1970-01-01T00:00:00Z,{{ customer.Business-Unit-Name }},Dealership/business unit name
+cio_id,0,0,0,15660,1970-01-01T00:00:00Z,{{ customer.cio_id }},Customer.io system identifier
+cio_subscription_preferences,0,0,0,104,2025-05-14T13:38:59Z,{{ customer.cio_subscription_preferences }},Customer's subscription preference settings
+cio_subscription_preferences.topics.topic_1,0,0,0,12,1970-01-01T00:00:00Z,{{ customer.cio_subscription_preferences.topics.topic_1 }},Topic 1 subscription preference
+cio_subscription_preferences.topics.topic_2,0,0,0,56,1970-01-01T00:00:00Z,{{ customer.cio_subscription_preferences.topics.topic_2 }},Topic 2 subscription preference
+cio_subscription_preferences.topics.topic_3,0,0,0,24,1970-01-01T00:00:00Z,{{ customer.cio_subscription_preferences.topics.topic_3 }},Topic 3 subscription preference
+cio_subscription_preferences.topics.topic_4,0,0,0,12,1970-01-01T00:00:00Z,{{ customer.cio_subscription_preferences.topics.topic_4 }},Topic 4 subscription preference
+cio_subscription_preferences.topics.topic_5,0,0,0,42,1970-01-01T00:00:00Z,{{ customer.cio_subscription_preferences.topics.topic_5 }},Topic 5 subscription preference
+cio_subscription_preferences.topics.topic_6,0,0,0,34,1970-01-01T00:00:00Z,{{ customer.cio_subscription_preferences.topics.topic_6 }},Topic 6 subscription preference
+cio_subscription_preferences.topics.topic_7,0,0,0,5,1970-01-01T00:00:00Z,{{ customer.cio_subscription_preferences.topics.topic_7 }},Topic 7 subscription preference
+Client-Address1,0,0,0,11487,1970-01-01T00:00:00Z,{{ customer.Client-Address1 }},Primary address line
+Client-Address2,0,0,0,432,1970-01-01T00:00:00Z,{{ customer.Client-Address2 }},Secondary address line
+Client-Alt.-Email,0,0,0,100,1970-01-01T00:00:00Z,{{ customer.Client-Alt.-Email }},Alternative email address
+Client-Cell,1,11,4,12708,1970-01-01T00:00:00Z,{{ customer.Client-Cell }},Mobile/cell phone number
+Client-City,0,0,0,14237,1970-01-01T00:00:00Z,{{ customer.Client-City }},City of residence
+Client-Contact-First,0,0,0,256,1970-01-01T00:00:00Z,{{ customer.Client-Contact-First }},Contact's first name
+Client-Contact-Last,0,0,0,18,1970-01-01T00:00:00Z,{{ customer.Client-Contact-Last }},Contact's last name
+Client-DMS-Customer-Number,0,0,0,11294,1970-01-01T00:00:00Z,{{ customer.Client-DMS-Customer-Number }},DMS system customer identifier
+Client-First-Name,0,0,0,15112,1970-01-01T00:00:00Z,{{ customer.Client-First-Name }},Customer's first name
+Client-First-Name/Business-Name,0,0,0,15353,1970-01-01T00:00:00Z,{{ customer.Client-First-Name/Business-Name }},First name or business name
+Client-Full-Address,0,0,0,11487,1970-01-01T00:00:00Z,{{ customer.Client-Full-Address }},Complete formatted address
+Client-Full-Name,0,0,0,15347,1970-01-01T00:00:00Z,{{ customer.Client-Full-Name }},Customer's full name
+Client-Home-Phone,0,0,0,13364,1970-01-01T00:00:00Z,{{ customer.Client-Home-Phone }},Home phone number
+Client-Last-Name,0,0,0,15358,1970-01-01T00:00:00Z,{{ customer.Client-Last-Name }},Customer's last name
+Client-Middle-Name,0,0,0,6379,1970-01-01T00:00:00Z,{{ customer.Client-Middle-Name }},Customer's middle name
+Client-Phone:-Other,0,0,0,310,1970-01-01T00:00:00Z,{{ customer.Client-Phone:-Other }},Additional phone number
+Client-Phone:-Text,0,0,0,4904,1970-01-01T00:00:00Z,{{ customer.Client-Phone:-Text }},SMS-capable phone number
+Client-State,0,0,0,14550,1970-01-01T00:00:00Z,{{ customer.Client-State }},State of residence
+Client-Work-Phone,0,0,0,6165,1970-01-01T00:00:00Z,{{ customer.Client-Work-Phone }},Work phone number
+Client-ZIP-Code,0,0,0,14332,1970-01-01T00:00:00Z,{{ customer.Client-ZIP-Code }},ZIP/postal code
+created_at,0,1,0,829,2025-05-16T15:06:30Z,{{ customer.created_at }},Customer record creation timestamp
+CS-Client-Last-RO-Date,2,29,0,8256,1970-01-01T00:00:00Z,{{ customer.CS-Client-Last-RO-Date }},Date of customer's last repair order
+CS-Rec-Service-Accept,1,1,0,1,2025-05-02T16:45:18Z,{{ customer.CS-Rec-Service-Accept }},Recommended service acceptance
+CS-Rec-Service-Refusal-Code,1,1,0,1,2025-05-02T16:45:18Z,{{ customer.CS-Rec-Service-Refusal-Code }},Code for service recommendation refusal
+CS-RO-Close-Date,0,0,0,6177,1970-01-01T00:00:00Z,{{ customer.CS-RO-Close-Date }},Date repair order was closed
+CS-RO-Date,1,4,0,8257,1970-01-01T00:00:00Z,{{ customer.CS-RO-Date }},Date of repair order
+CS-RO-Number,0,0,0,8257,1970-01-01T00:00:00Z,{{ customer.CS-RO-Number }},Repair order number
+DMS-Advisor-Name,0,0,0,728,2025-05-16T15:06:30Z,{{ customer.DMS-Advisor-Name }},DMS system advisor name
+DMS-Business-Unit,0,0,0,825,2025-05-16T15:06:30Z,{{ customer.DMS-Business-Unit }},DMS system business unit
+DMS-Client-Cell,1,2,0,781,2025-05-16T15:06:30Z,{{ customer.DMS-Client-Cell }},DMS system cell phone
+DMS-Client-Customer-Number,0,0,0,825,2025-05-16T15:06:30Z,{{ customer.DMS-Client-Customer-Number }},DMS system customer number
+DMS-Client-Full-Name,0,0,0,825,2025-05-16T15:06:30Z,{{ customer.DMS-Client-Full-Name }},DMS system full name
+DMS-CV-Flag,0,0,0,825,2025-05-16T15:06:30Z,{{ customer.DMS-CV-Flag }},Customer value flag in DMS
+email,4,4,0,15655,2025-05-16T15:06:30Z,{{ customer.email }},Primary email address
+emailable score,2,35,0,11575,1970-01-01T00:00:00Z,{{ customer.emailable score }},Email deliverability score
+emailable state,0,0,0,11575,1970-01-01T00:00:00Z,{{ customer.emailable state }},Email deliverability status
+Hierarchy,2,1,0,4,1970-01-01T00:00:00Z,{{ customer.Hierarchy }},Organizational hierarchy position
+id,0,2,0,5,1970-01-01T00:00:00Z,{{ customer.id }},System identifier
+Salesperson/User-Full-Name,0,0,0,9764,1970-01-01T00:00:00Z,{{ customer.Salesperson/User-Full-Name }},Assigned salesperson name
+Secondary-Slsp/User-Full-Name,0,0,0,246,1970-01-01T00:00:00Z,{{ customer.Secondary-Slsp/User-Full-Name }},Secondary salesperson name
+unsubscribed,0,1,0,206,2025-05-14T13:38:59Z,{{ customer.unsubscribed }},Email unsubscribe status
+_created_in_customerio_at,0,0,0,0,1970-01-01T00:00:00Z,{{ customer._created_in_customerio_at }},Customer.io record creation timestamp
+Dealer-Contact-Consent-for-Alternate-Email,0,0,0,1,1970-01-01T00:00:00Z,{{ customer.Dealer-Contact-Consent-for-Alternate-Email }},Consent for alternate email communication
+Dealer-Contact-Consent-for-Direct-Mail,0,0,0,10021,1970-01-01T00:00:00Z,{{ customer.Dealer-Contact-Consent-for-Direct-Mail }},Consent for direct mail communication
+Dealer-Contact-Consent-for-Email,2,19,1,10061,1970-01-01T00:00:00Z,{{ customer.Dealer-Contact-Consent-for-Email }},Consent for email communication
+Dealer-Contact-Consent-for-Phone,0,3,0,10053,1970-01-01T00:00:00Z,{{ customer.Dealer-Contact-Consent-for-Phone }},Consent for phone communication
+DMS-Dealer-Contact-Consent-for-Direct-Mail,0,0,0,520,2025-05-16T15:06:30Z,{{ customer.DMS-Dealer-Contact-Consent-for-Direct-Mail }},DMS consent for direct mail
+DMS-Dealer-Contact-Consent-for-Email,0,1,0,543,2025-05-16T15:06:30Z,{{ customer.DMS-Dealer-Contact-Consent-for-Email }},DMS consent for email
+DMS-Dealer-Contact-Consent-for-Phone,0,3,0,521,2025-05-16T15:06:30Z,{{ customer.DMS-Dealer-Contact-Consent-for-Phone }},DMS consent for phone
+,,,,,,,
+## SALES - Vehicle purchase and sales-related attributes,,,,,,,
+,,,,,,,
+Deal Number,0,0,0,110,2025-05-15T15:03:56Z,{{ customer.Deal Number }},Sales transaction identifier
+Deal-Number,0,0,0,3687,1970-01-01T00:00:00Z,{{ customer.Deal-Number }},Sales deal number
+Desired-Make,3,10,40,5961,1970-01-01T00:00:00Z,{{ customer.Desired-Make }},Preferred vehicle make
+Desired-Model,0,6,0,5690,1970-01-01T00:00:00Z,{{ customer.Desired-Model }},Preferred vehicle model
+Desired-Stock-Number,0,0,0,3930,1970-01-01T00:00:00Z,{{ customer.Desired-Stock-Number }},Specific stock number of interest
+Desired-Stock-Type,1,6,0,5907,1970-01-01T00:00:00Z,{{ customer.Desired-Stock-Type }},Preferred inventory type
+Desired-Style,0,0,0,2375,1970-01-01T00:00:00Z,{{ customer.Desired-Style }},Preferred vehicle style/body type
+Desired-Year,0,0,0,4861,1970-01-01T00:00:00Z,{{ customer.Desired-Year }},Preferred vehicle year
+DMS-Deal-Category,0,0,0,110,2025-05-15T15:03:56Z,{{ customer.DMS-Deal-Category }},DMS deal classification
+DMS-Deal-Date,1,4,0,110,2025-05-15T15:03:56Z,{{ customer.DMS-Deal-Date }},Date of DMS deal
+DMS-Make,2,0,0,825,2025-05-16T15:06:30Z,{{ customer.DMS-Make }},Vehicle make in DMS
+DMS-New-Used,0,0,0,110,2025-05-15T15:03:56Z,{{ customer.DMS-New-Used }},New or used vehicle status
+DMS-Salesperson-Name,0,0,0,110,2025-05-15T15:03:56Z,{{ customer.DMS-Salesperson-Name }},Salesperson name in DMS
+DMS-Vehicle-Model,0,0,0,821,2025-05-16T15:06:30Z,{{ customer.DMS-Vehicle-Model }},Vehicle model in DMS
+Footer-recs,2,0,0,1502,2025-05-16T18:06:04Z,{{ customer.Footer-recs }},Footer recommendations
+Prospect-Created-Date,2,25,0,8787,1970-01-01T00:00:00Z,{{ customer.Prospect-Created-Date }},Date prospect was created
+Prospect-Modified-Date,0,0,0,8787,1970-01-01T00:00:00Z,{{ customer.Prospect-Modified-Date }},Last modification date for prospect
+Prospect-Source,0,0,0,8787,1970-01-01T00:00:00Z,{{ customer.Prospect-Source }},Lead source for prospect
+Prospect-Status,2,17,1,8787,1970-01-01T00:00:00Z,{{ customer.Prospect-Status }},Current status of prospect
+Prospect-Status-Type-,0,0,0,8787,1970-01-01T00:00:00Z,{{ customer.Prospect-Status-Type- }},Type of prospect status
+Prospect-Type,0,0,0,8787,1970-01-01T00:00:00Z,{{ customer.Prospect-Type }},Classification of prospect
+Sales-Close-Date,0,3,0,3682,1970-01-01T00:00:00Z,{{ customer.Sales-Close-Date }},Date sale was closed
+Sales-Deal-Date,0,9,0,3687,1970-01-01T00:00:00Z,{{ customer.Sales-Deal-Date }},Date of sales transaction
+Sales-Deal-Number,0,0,0,3687,1970-01-01T00:00:00Z,{{ customer.Sales-Deal-Number }},Sales transaction number
+Sales-Lease-Termination-Date,0,0,0,158,1970-01-01T00:00:00Z,{{ customer.Sales-Lease-Termination-Date }},End date for vehicle lease
+Sales-Specs-Recs,1,0,0,1778,2025-05-16T18:06:05Z,{{ customer.Sales-Specs-Recs }},Vehicle specifications recommendations
+Sales-Stock-Number,0,0,0,3687,1970-01-01T00:00:00Z,{{ customer.Sales-Stock-Number }},Inventory stock number of sold vehicle
+Salesperson1-Name,0,0,0,3683,1970-01-01T00:00:00Z,{{ customer.Salesperson1-Name }},Primary salesperson name
+Vehicle-Make,2,23,6,9111,1970-01-01T00:00:00Z,{{ customer.Vehicle-Make }},Make of customer's vehicle
+Vehicle-Model,0,0,0,9111,1970-01-01T00:00:00Z,{{ customer.Vehicle-Model }},Model of customer's vehicle
+Vehicle-Stock-Type,0,0,0,3687,1970-01-01T00:00:00Z,{{ customer.Vehicle-Stock-Type }},Inventory classification
+Vehicle-Style,0,0,0,3686,1970-01-01T00:00:00Z,{{ customer.Vehicle-Style }},Body style of vehicle
+Vehicle-VIN,0,0,0,9111,1970-01-01T00:00:00Z,{{ customer.Vehicle-VIN }},Vehicle identification number
+Vehicle-Year,0,16,0,9111,1970-01-01T00:00:00Z,{{ customer.Vehicle-Year }},Year of customer's vehicle
+,,,,,,,
+## SERVICE - Service and repair-related attributes,,,,,,,
+,,,,,,,
+CS-Client-Last-RO-Date,2,29,0,8256,1970-01-01T00:00:00Z,{{ customer.CS-Client-Last-RO-Date }},Date of customer's last repair order
+CS-Rec-Service-Accept,1,1,0,1,2025-05-02T16:45:18Z,{{ customer.CS-Rec-Service-Accept }},Recommended service acceptance
+CS-Rec-Service-Refusal-Code,1,1,0,1,2025-05-02T16:45:18Z,{{ customer.CS-Rec-Service-Refusal-Code }},Code for service recommendation refusal
+CS-RO-Close-Date,0,0,0,6177,1970-01-01T00:00:00Z,{{ customer.CS-RO-Close-Date }},Date repair order was closed
+CS-RO-Date,1,4,0,8257,1970-01-01T00:00:00Z,{{ customer.CS-RO-Date }},Date of repair order
+CS-RO-Number,0,0,0,8257,1970-01-01T00:00:00Z,{{ customer.CS-RO-Number }},Repair order number
+DMS-Last-RO-Date,2,12,0,728,2025-05-16T15:06:30Z,{{ customer.DMS-Last-RO-Date }},Last repair order date in DMS
+DMS-Last-RO-Number,0,6,0,728,2025-05-16T15:06:30Z,{{ customer.DMS-Last-RO-Number }},Last repair order number in DMS
+Vehicle-Last-RO-Mileage,0,2,0,8252,1970-01-01T00:00:00Z,{{ customer.Vehicle-Last-RO-Mileage }},Vehicle mileage at last repair
+Vehicle-Mileage-Out,0,0,0,4288,1970-01-01T00:00:00Z,{{ customer.Vehicle-Mileage-Out }},Vehicle mileage when leaving service
+,,,,,,,
+## PRE-OWNED - Trade-in and used vehicle attributes,,,,,,,
+,,,,,,,
+pre-owned-recs,1,0,0,1556,1970-01-01T00:00:00Z,{{ customer.pre-owned-recs }},Pre-owned vehicle recommendations
+Trade-Make,0,0,0,2011,1970-01-01T00:00:00Z,{{ customer.Trade-Make }},Make of trade-in vehicle
+Trade-Mileage,0,0,0,1965,1970-01-01T00:00:00Z,{{ customer.Trade-Mileage }},Mileage of trade-in vehicle
+Trade-Model,0,0,0,2011,1970-01-01T00:00:00Z,{{ customer.Trade-Model }},Model of trade-in vehicle
+Trade-VIN,0,0,0,1955,1970-01-01T00:00:00Z,{{ customer.Trade-VIN }},VIN of trade-in vehicle
+Trade-Year,0,0,0,2011,1970-01-01T00:00:00Z,{{ customer.Trade-Year }},Year of trade-in vehicle
+,,,,,,,
+## LIQUID EXAMPLES - Template reference examples,,,,,,,
+,,,,,,,
+Collection Example,0,0,0,0,2025-05-18T00:00:00Z,"{% for vehicle in customer.vehicles %}
+  {{ vehicle.make }} {{ vehicle.model }} ({{ vehicle.year }})
+{% endfor %}",Iterate through a collection of customer vehicles
+Collection Item Access,0,0,0,0,2025-05-18T00:00:00Z,"{{ customer.vehicles[0].make }}
+{{ customer.vehicles | first | map: 'model' }}
+{{ customer.vehicles | where: 'make', 'Toyota' | map: 'model' | join: ', ' }}","Access specific items in a collection with index, filters, and maps"
+Snippet Include,0,0,0,0,2025-05-18T00:00:00Z,"{% include 'dealer_signature' %}
+{% include 'service_reminder' with customer.vehicle %}",Include reusable content snippets in templates
+Snippet With Parameters,0,0,0,0,2025-05-18T00:00:00Z,"{% include 'vehicle_offer' with make: customer.Desired-Make, model: customer.Desired-Model %}
+{% include 'appointment_details' with date: customer.CS-RO-Date, advisor: customer.Advisor-Name %}",Pass parameters to included snippets
+Conditional Logic,0,0,0,0,2025-05-18T00:00:00Z,"{% if customer.Vehicle-Make == 'Honda' %}
+  Honda service instructions
+{% elsif customer.Vehicle-Make == 'Toyota' %}
+  Toyota service instructions
+{% else %}
+  General service instructions
+{% endif %}",Conditional content based on customer attributes
+Date Formatting,0,0,0,0,2025-05-18T00:00:00Z,"{{ customer.CS-RO-Date | date: '%B %d, %Y' }}
+{{ 'now' | date: '%A, %B %d' }}",Format dates in templates
+Math Operations,0,0,0,0,2025-05-18T00:00:00Z,"{% assign days_since_service = 'now' | date: '%s' | minus: customer.CS-Client-Last-RO-Date | date: '%s' | divided_by: 86400 %}
+{{ days_since_service }} days since your last service",Perform calculations in templates

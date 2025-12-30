@@ -1,0 +1,182 @@
+{% if customer.DMS-Deal-Date %}
+<!-- Pre-footer Snippet for Sales (Showroom Hours) -->
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 600px; margin: 0 auto; font-family: Arial, sans-serif;">
+    <tr>
+        <td align="center" style="background-color: #000000; padding: 30px 20px;">
+            <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 550px;">
+                <tr>
+                    <td style="border-top: 1px solid #ffffff; padding-top: 20px;">
+                        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
+                            <tr>
+                                <td align="center" style="padding-bottom: 20px;">
+                                    <a href="https://www.swickardacuraofthousandoaks.com/searchnew.aspx" style="color: #ffffff; text-decoration: none; font-weight: bold; font-size: 14px; padding: 0 10px;">New</a>
+                                    <a href="https://www.swickardacuraofthousandoaks.com/used/" style="color: #ffffff; text-decoration: none; font-weight: bold; font-size: 14px; padding: 0 10px;">Used</a>
+                                    <a href="https://www.swickardacuraofthousandoaks.com/service.aspx" style="color: #ffffff; text-decoration: none; font-weight: bold; font-size: 14px; padding: 0 10px;">Service</a>
+                                    <a href="https://gubagoo.io/live-chat/136718?toolbar_id=1" style="color: #ffffff; text-decoration: none; font-weight: bold; font-size: 14px; padding: 0 10px;">Chat</a>
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+                <tr>
+                    <td align="center" style="padding-bottom: 20px;">
+                        <table role="presentation" border="0" cellpadding="0" cellspacing="0">
+                            <tr>
+                                <td style="padding: 0 10px;">
+                                    <a href="https://www.instagram.com/acuraofthousandoaks/">
+                                        <img src="https://enfoilk.stripocdn.email/content/assets/img/social-icons/logo-white/instagram-logo-white.png" alt="Instagram" width="32" height="32" style="display: block;">
+                                    </a>
+                                </td>
+                                <td style="padding: 0 10px;">
+                                    <a href="https://www.facebook.com/AcuraThousandOaks/">
+                                        <img src="https://enfoilk.stripocdn.email/content/assets/img/social-icons/logo-white/facebook-logo-white.png" alt="Facebook" width="32" height="32" style="display: block;">
+                                    </a>
+                                </td>
+                                <td style="padding: 0 10px;">
+                                    <a href="https://twitter.com/AcuraofTO">
+                                        <img src="https://enfoilk.stripocdn.email/content/assets/img/social-icons/logo-white/x-logo-white.png" alt="Twitter" width="32" height="32" style="display: block;">
+                                    </a>
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+                <tr>
+                    <td align="center" style="font-family: Arial, sans-serif; font-size: 12px; line-height: 1.5; color: #ffffff;">
+                        <p style="margin: 0 0 10px 0;"><strong>Showroom Hours:</strong></p>
+                        <p style="margin: 0 0 5px 0;">Monday - Saturday 9:00am - 8:00pm</p>
+                        <p style="margin: 0 0 10px 0;">Sunday 10:00am - 7:00pm</p>
+                        <p style="margin: 0;"><a href="tel:+18053715800" style="color: #ffffff; text-decoration: none;"><strong>(805) 371-5800</strong></a></p>
+                    </td>
+                </tr>
+            </table>
+        </td>
+    </tr>
+    <tr>
+        <td align="center" style="background-color: #000000; padding: 20px; font-family: Arial, sans-serif; font-size: 10px; color: #ffffff;">
+            Copyright © 2025 Acura Thousand Oaks, All rights reserved.
+        </td>
+    </tr>
+</table>
+{% elsif customer.DMS-Last-RO-Date %}
+<!-- Pre-footer Snippet for Service (Service Hours) -->
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 600px; margin: 0 auto; font-family: Arial, sans-serif;">
+    <tr>
+        <td align="center" style="background-color: #000000; padding: 30px 20px;">
+            <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 550px;">
+                <tr>
+                    <td style="border-top: 1px solid #ffffff; padding-top: 20px;">
+                        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
+                            <tr>
+                                <td align="center" style="padding-bottom: 20px;">
+                                    <a href="https://www.swickardacuraofthousandoaks.com/searchnew.aspx" style="color: #ffffff; text-decoration: none; font-weight: bold; font-size: 14px; padding: 0 10px;">New</a>
+                                    <a href="https://www.swickardacuraofthousandoaks.com/used/" style="color: #ffffff; text-decoration: none; font-weight: bold; font-size: 14px; padding: 0 10px;">Used</a>
+                                    <a href="https://www.swickardacuraofthousandoaks.com/service.aspx" style="color: #ffffff; text-decoration: none; font-weight: bold; font-size: 14px; padding: 0 10px;">Service</a>
+                                    <a href="https://gubagoo.io/live-chat/136718?toolbar_id=1" style="color: #ffffff; text-decoration: none; font-weight: bold; font-size: 14px; padding: 0 10px;">Chat</a>
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+                <tr>
+                    <td align="center" style="padding-bottom: 20px;">
+                        <table role="presentation" border="0" cellpadding="0" cellspacing="0">
+                            <tr>
+                                <td style="padding: 0 10px;">
+                                    <a href="https://www.instagram.com/acuraofthousandoaks/">
+                                        <img src="https://enfoilk.stripocdn.email/content/assets/img/social-icons/logo-white/instagram-logo-white.png" alt="Instagram" width="32" height="32" style="display: block;">
+                                    </a>
+                                </td>
+                                <td style="padding: 0 10px;">
+                                    <a href="https://www.facebook.com/AcuraThousandOaks/">
+                                        <img src="https://enfoilk.stripocdn.email/content/assets/img/social-icons/logo-white/facebook-logo-white.png" alt="Facebook" width="32" height="32" style="display: block;">
+                                    </a>
+                                </td>
+                                <td style="padding: 0 10px;">
+                                    <a href="https://twitter.com/AcuraofTO">
+                                        <img src="https://enfoilk.stripocdn.email/content/assets/img/social-icons/logo-white/x-logo-white.png" alt="Twitter" width="32" height="32" style="display: block;">
+                                    </a>
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+                <tr>
+                    <td align="center" style="font-family: Arial, sans-serif; font-size: 12px; line-height: 1.5; color: #ffffff;">
+                        <p style="margin: 0 0 10px 0;"><strong>Service Hours:</strong></p>
+                        <p style="margin: 0 0 5px 0;">Monday - Friday 7:30am - 6:00pm</p>
+                        <p style="margin: 0 0 5px 0;">Saturday 7:30am - 4:00pm</p>
+                        <p style="margin: 0 0 10px 0;">Sunday Closed</p>
+                        <p style="margin: 0;"><a href="tel:+18053715800" style="color: #ffffff; text-decoration: none;"><strong>(805) 371-5800</strong></a></p>
+                    </td>
+                </tr>
+            </table>
+        </td>
+    </tr>
+    <tr>
+        <td align="center" style="background-color: #000000; padding: 20px; font-family: Arial, sans-serif; font-size: 10px; color: #ffffff;">
+            Copyright © 2025 Acura Thousand Oaks, All rights reserved.
+        </td>
+    </tr>
+</table>
+{% else %}
+<!-- Default Pre-footer if no dates are present -->
+<table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 600px; margin: 0 auto; font-family: Arial, sans-serif;">
+    <tr>
+        <td align="center" style="background-color: #000000; padding: 30px 20px;">
+            <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 550px;">
+                <tr>
+                    <td style="border-top: 1px solid #ffffff; padding-top: 20px;">
+                        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
+                            <tr>
+                                <td align="center" style="padding-bottom: 20px;">
+                                    <a href="https://www.swickardacuraofthousandoaks.com/searchnew.aspx" style="color: #ffffff; text-decoration: none; font-weight: bold; font-size: 14px; padding: 0 10px;">New</a>
+                                    <a href="https://www.swickardacuraofthousandoaks.com/used/" style="color: #ffffff; text-decoration: none; font-weight: bold; font-size: 14px; padding: 0 10px;">Used</a>
+                                    <a href="https://www.swickardacuraofthousandoaks.com/service.aspx" style="color: #ffffff; text-decoration: none; font-weight: bold; font-size: 14px; padding: 0 10px;">Service</a>
+                                    <a href="https://gubagoo.io/live-chat/136718?toolbar_id=1" style="color: #ffffff; text-decoration: none; font-weight: bold; font-size: 14px; padding: 0 10px;">Chat</a>
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+                <tr>
+                    <td align="center" style="padding-bottom: 20px;">
+                        <table role="presentation" border="0" cellpadding="0" cellspacing="0">
+                            <tr>
+                                <td style="padding: 0 10px;">
+                                    <a href="https://www.instagram.com/acuraofthousandoaks/">
+                                        <img src="https://enfoilk.stripocdn.email/content/assets/img/social-icons/logo-white/instagram-logo-white.png" alt="Instagram" width="32" height="32" style="display: block;">
+                                    </a>
+                                </td>
+                                <td style="padding: 0 10px;">
+                                    <a href="https://www.facebook.com/AcuraThousandOaks/">
+                                        <img src="https://enfoilk.stripocdn.email/content/assets/img/social-icons/logo-white/facebook-logo-white.png" alt="Facebook" width="32" height="32" style="display: block;">
+                                    </a>
+                                </td>
+                                <td style="padding: 0 10px;">
+                                    <a href="https://twitter.com/AcuraofTO">
+                                        <img src="https://enfoilk.stripocdn.email/content/assets/img/social-icons/logo-white/x-logo-white.png" alt="Twitter" width="32" height="32" style="display: block;">
+                                    </a>
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+                <tr>
+                    <td align="center" style="font-family: Arial, sans-serif; font-size: 12px; line-height: 1.5; color: #ffffff;">
+                        <p style="margin: 0 0 10px 0;"><strong>Showroom Hours:</strong></p>
+                        <p style="margin: 0 0 5px 0;">Monday - Saturday 9:00am - 8:00pm</p>
+                        <p style="margin: 0 0 10px 0;">Sunday 10:00am - 7:00pm</p>
+                        <p style="margin: 0;"><a href="tel:+18053715800" style="color: #ffffff; text-decoration: none;"><strong>(805) 371-5800</strong></a></p>
+                    </td>
+                </tr>
+            </table>
+        </td>
+    </tr>
+    <tr>
+        <td align="center" style="background-color: #000000; padding: 20px; font-family: Arial, sans-serif; font-size: 10px; color: #ffffff;">
+            Copyright © 2025 Acura Thousand Oaks, All rights reserved.
+        </td>
+    </tr>
+</table>
+{% endif %}
