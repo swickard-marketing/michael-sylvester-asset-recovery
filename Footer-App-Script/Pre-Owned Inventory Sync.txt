@@ -1,0 +1,1795 @@
+import ftplib
+import os
+from dotenv import load_dotenv
+import json
+from datetime import datetime
+import csv
+import requests
+import tempfile
+import logging
+import re
+from urllib.parse import urlparse
+
+# Load environment variables
+load_dotenv()
+
+# URL Validation Functions
+def validate_url_for_sold_vehicle(url, timeout=5):
+    """
+    Validate if a URL redirects (indicating sold vehicle).
+    Returns status and final URL.
+    """
+    if not url:
+        return "no_url", None
+    
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        }
+        
+        response = requests.get(url, allow_redirects=True, timeout=timeout, headers=headers)
+        
+        # Check if redirected to a different URL
+        if response.url != url:
+            # Analyze redirect destination
+            if is_homepage_or_search_redirect(response.url, url):
+                return "likely_sold", response.url
+            else:
+                return "redirected", response.url
+        
+        return "valid", response.url
+    except Exception as e:
+        logging.debug(f"URL validation failed for {url}: {str(e)}")
+        return "validation_failed", None
+
+def is_homepage_or_search_redirect(final_url, original_url):
+    """
+    Check if redirect indicates sold vehicle (homepage or search page).
+    """
+    original_parsed = urlparse(original_url)
+    final_parsed = urlparse(final_url)
+    
+    # If redirected to different domain, likely sold
+    if original_parsed.netloc != final_parsed.netloc:
+        return True
+    
+    # Common sold vehicle redirect patterns
+    sold_patterns = [
+        '/',              # Homepage
+        '/index.html',    # Homepage
+        '/inventory',     # General inventory
+        '/used-inventory', # Used inventory search
+        '/search',        # Search page
+        '/vehicles',      # Vehicle listing
+    ]
+    
+    for pattern in sold_patterns:
+        if final_parsed.path.rstrip('/') == pattern.rstrip('/'):
+            return True
+    
+    # If original URL had search parameters but final doesn't, likely sold
+    if 'search=' in original_url and 'search=' not in final_url:
+        return True
+    
+    return False
+
+# Enhanced Price Validation Functions
+def parse_price_robust(price_str, field_name="price"):
+    """
+    Robust price parsing that handles raw CSV values properly.
+    """
+    if not price_str:
+        return None
+    
+    try:
+        # Convert to string and remove whitespace
+        price_clean = str(price_str).strip()
+        
+        # Handle common non-price values
+        non_price_indicators = ['call', 'contact', 'inquire', 'n/a', 'na', 'null', 'none', 'tbd']
+        if any(indicator in price_clean.lower() for indicator in non_price_indicators):
+            return None
+        
+        # Remove everything except digits and decimal point
+        numeric_only = ''.join(c for c in price_clean if c.isdigit() or c == '.')
+        
+        if not numeric_only:
+            return None
+            
+        return float(numeric_only)
+    except Exception:
+        return None
+
+def enhanced_price_validation(price_raw, msrp_raw, stock, dealer_name):
+    """
+    Enhanced price validation with detailed logging and proper raw value parsing.
+    """
+    # Parse RAW values (not formatted ones)
+    price_is_val = parse_price_robust(price_raw.split()[0] if price_raw else '', "Price_Is")
+    price_was_val = parse_price_robust(msrp_raw.split()[0] if msrp_raw else '', "Price_Was")
+    
+    # Debug logging for price parsing
+    logging.debug(f"Price validation for {dealer_name} Stock {stock}:")
+    logging.debug(f"  price_raw: '{price_raw}'")
+    logging.debug(f"  msrp_raw: '{msrp_raw}'")
+    logging.debug(f"  price_is_val: {price_is_val}")
+    logging.debug(f"  price_was_val: {price_was_val}")
+    
+    # If we can't parse both prices, we can't validate - include vehicle
+    if price_is_val is None or price_was_val is None:
+        if price_is_val is None and price_was_val is None:
+            logging.debug(f"  Both prices invalid - including vehicle")
+        else:
+            missing_price = "Price_Is" if price_is_val is None else "Price_Was"
+            logging.debug(f"  Missing valid {missing_price} - including vehicle")
+        return False  # Don't skip
+    
+    # Main validation: Price_Was should be higher than Price_Is
+    if price_was_val < price_is_val:
+        difference = price_is_val - price_was_val
+        percentage_diff = (difference / price_was_val) * 100 if price_was_val > 0 else 0
+        
+        logging.info(f"PRICE VALIDATION: Skipping {dealer_name} Stock {stock}")
+        logging.info(f"  Price_Is: ${price_is_val:,.2f} (from: '{price_raw}')")
+        logging.info(f"  Price_Was: ${price_was_val:,.2f} (from: '{msrp_raw}')")
+        logging.info(f"  Issue: Price_Was < Price_Is by ${difference:,.2f} ({percentage_diff:.1f}%)")
+        
+        return True  # Skip this vehicle
+    
+    # Log successful validation
+    if price_was_val > price_is_val:
+        discount = price_was_val - price_is_val
+        discount_pct = (discount / price_was_val) * 100
+        logging.debug(f"  Price validation passed - discount: ${discount:,.2f} ({discount_pct:.1f}%)")
+    else:
+        logging.debug(f"  Price validation passed - prices equal")
+    
+    return False  # Don't skip
+
+# Setup logging
+log_filename = f"inventory_sync_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(log_filename),
+        logging.StreamHandler()
+    ]
+)
+
+# FTP Configuration
+FTP_HOST = os.getenv('FTP_HOST')
+FTP_USER = os.getenv('FTP_USER')
+FTP_PASS = os.getenv('FTP_PASS')
+
+# Customer.io API Configuration
+CUSTOMERIO_API_URL = "https://api.customer.io/v1/collections"
+CUSTOMERIO_API_KEY = os.getenv('CUSTOMERIO_API_KEY')
+
+# Stock Number Filter Configuration
+STOCK_NUMBERS_FILE = "development/Stock Numbers (MAIN).json"
+MIN_VEHICLES_COUNT = 12
+USE_STOCK_FILTER = True  # Set to False to disable filtering
+MAX_PRICE = 99999  # Maximum price filter - vehicles above this price will be excluded
+MIN_PRICE = 2000   # Minimum price filter - vehicles at or below this price will be excluded
+MIN_MILEAGE = 100  # Minimum mileage filter - vehicles with less than this mileage will be excluded (filters out "coming soon" vehicles)
+
+# Production Filter Configuration
+USE_PRODUCTION_FILTERS = True  # Set to False to disable production-level filtering
+STRICT_PRODUCTION_MODE = False  # Set to True for strict filtering (all criteria must be met)
+
+# EV Priority Filter Configuration (TEMPORARY - Remove after EV campaign)
+USE_EV_PRIORITY_FILTER = True  # Set to False to disable EV prioritization
+EV_PRIORITY_MODE = "scoring"  # Options: "scoring" (smart detection) or "basic" (keyword only)
+
+# Email Template Fields - Only subject line and preheader remain
+LUXURY_SUBJECT_LINE = " Indulge in Pre-Owned Picks ⭐"
+LUXURY_PREHEADER = "Exclusive Manager’s Pricing Now Available on Pre-Owned Models"
+
+LIFESTYLE_SUBJECT_LINE = " Discover Top Pre-Owned Picks 🚘"
+LIFESTYLE_PREHEADER = "Exclusive Manager’s Pricing Now Available on Pre-Owned Models"
+
+# Helper function to normalize dealer name for environment variables
+def normalize_dealer_name(name):
+    """Convert dealer name to a format suitable for environment variables"""
+    return name.replace(" ", "_").replace("-", "_").replace(".", "").upper()
+
+# Helper function to get dealer API key from environment variables with fallback
+def get_dealer_api_key(dealer_name):
+    """Get dealer API key from environment variables"""
+    env_var_name = f"DEALER_{normalize_dealer_name(dealer_name)}_API_KEY"
+    api_key = os.getenv(env_var_name)
+    if not api_key:
+        logging.warning(f"Missing API key for {dealer_name}. Set {env_var_name} in your environment variables.")
+    return api_key
+
+# Helper function to get dealer collection ID from environment variables with fallback
+def get_dealer_collection_id(dealer_name):
+    """Get dealer collection ID from environment variables"""
+    env_var_name = f"DEALER_{normalize_dealer_name(dealer_name)}_COLLECTION_ID"
+    value = os.getenv(env_var_name)
+    if not value:
+        logging.warning(f"Missing collection ID for {dealer_name}. Set {env_var_name} in your environment variables.")
+        return None
+    try:
+        return int(value)
+    except ValueError:
+        logging.error(f"Invalid collection ID for {dealer_name}: {value} must be a number")
+        return None
+
+# Dealer configurations with their specific prefixes
+# API keys and collection IDs must be set in environment variables
+DEALERS = [
+    { "name": "Acura Thousand Oaks", "apiKey": get_dealer_api_key("Acura Thousand Oaks"), "collectionId": get_dealer_collection_id("Acura Thousand Oaks"), "inventoryFilePrefix": "SWICKARD12" },
+    { "name": "Audi Oakland", "apiKey": get_dealer_api_key("Audi Oakland"), "collectionId": get_dealer_collection_id("Audi Oakland"), "inventoryFilePrefix": "AUDIOAKL01" },
+    { "name": "Audi Palo Alto", "apiKey": get_dealer_api_key("Audi Palo Alto"), "collectionId": get_dealer_collection_id("Audi Palo Alto"), "inventoryFilePrefix": "AUDIPALO01" },
+    { "name": "Audi Anchorage", "apiKey": get_dealer_api_key("Audi Anchorage"), "collectionId": get_dealer_collection_id("Audi Anchorage"), "inventoryFilePrefix": "SWICKARD11" },
+    { "name": "Audi Bellingham", "apiKey": get_dealer_api_key("Audi Bellingham"), "collectionId": get_dealer_collection_id("Audi Bellingham"), "inventoryFilePrefix": "SWICKARD20" },
+    { "name": "BMW of Eugene", "apiKey": get_dealer_api_key("BMW of Eugene"), "collectionId": get_dealer_collection_id("BMW of Eugene"), "inventoryFilePrefix": "BMWOFEUG02" },
+    { "name": "BMW of Lynnwood", "apiKey": get_dealer_api_key("BMW of Lynnwood"), "collectionId": get_dealer_collection_id("BMW of Lynnwood"), "inventoryFilePrefix": "BMWOFLYN01" },
+    { "name": "Crown Toyota", "apiKey": get_dealer_api_key("Crown Toyota"), "collectionId": get_dealer_collection_id("Crown Toyota"), "inventoryFilePrefix": "CROWNTOY01" },
+    { "name": "Gresham Toyota", "apiKey": get_dealer_api_key("Gresham Toyota"), "collectionId": get_dealer_collection_id("Gresham Toyota"), "inventoryFilePrefix": "GRESHAMT02" },
+
+
+    { "name": "Land Rover San Francisco", "apiKey": get_dealer_api_key("Land Rover San Francisco"), "collectionId": get_dealer_collection_id("Land Rover San Francisco"), "inventoryFilePrefix": "JLRSANFR01" },
+    { "name": "Land Rover Redwood City", "apiKey": get_dealer_api_key("Land Rover Redwood City"), "collectionId": get_dealer_collection_id("Land Rover Redwood City"), "inventoryFilePrefix": "LANDROVE13" },
+    { "name": "Land Rover Thousand Oaks", "apiKey": get_dealer_api_key("Land Rover Thousand Oaks"), "collectionId": get_dealer_collection_id("Land Rover Thousand Oaks"), "inventoryFilePrefix": "SWICKARD14" },
+    { "name": "Lexus of Fremont", "apiKey": get_dealer_api_key("Lexus of Fremont"), "collectionId": get_dealer_collection_id("Lexus of Fremont"), "inventoryFilePrefix": "LEXUSOFF01" },
+    { "name": "Lexus of Thousand Oaks", "apiKey": get_dealer_api_key("Lexus of Thousand Oaks"), "collectionId": get_dealer_collection_id("Lexus of Thousand Oaks"), "inventoryFilePrefix": "SWICKARD15" },
+    { "name": "Mercedes-Benz of Anchorage", "apiKey": get_dealer_api_key("Mercedes-Benz of Anchorage"), "collectionId": get_dealer_collection_id("Mercedes-Benz of Anchorage"), "inventoryFilePrefix": "MERCEDES32" },
+    { "name": "Mercedes-Benz of Honolulu", "apiKey": get_dealer_api_key("Mercedes-Benz of Honolulu"), "collectionId": get_dealer_collection_id("Mercedes-Benz of Honolulu"), "inventoryFilePrefix": "MERCEDES36" },
+    { "name": "Mercedes-Benz of Marin", "apiKey": get_dealer_api_key("Mercedes-Benz of Marin"), "collectionId": get_dealer_collection_id("Mercedes-Benz of Marin"), "inventoryFilePrefix": "MERCEDES31" },
+    { "name": "Mercedes-Benz of Maui", "apiKey": get_dealer_api_key("Mercedes-Benz of Maui"), "collectionId": get_dealer_collection_id("Mercedes-Benz of Maui"), "inventoryFilePrefix": "MERCEDES35" },
+    { "name": "Mercedes-Benz of Palo Alto", "apiKey": get_dealer_api_key("Mercedes-Benz of Palo Alto"), "collectionId": get_dealer_collection_id("Mercedes-Benz of Palo Alto"), "inventoryFilePrefix": "SWICKARD24" },
+    { "name": "Mercedes-Benz of Seattle", "apiKey": get_dealer_api_key("Mercedes-Benz of Seattle"), "collectionId": get_dealer_collection_id("Mercedes-Benz of Seattle"), "inventoryFilePrefix": "SWICKARD02" },
+    { "name": "Mercedes-Benz of South Austin", "apiKey": get_dealer_api_key("Mercedes-Benz of South Austin"), "collectionId": get_dealer_collection_id("Mercedes-Benz of South Austin"), "inventoryFilePrefix": "SWICKARD19" },
+    { "name": "Mercedes-Benz of Thousand Oaks", "apiKey": get_dealer_api_key("Mercedes-Benz of Thousand Oaks"), "collectionId": get_dealer_collection_id("Mercedes-Benz of Thousand Oaks"), "inventoryFilePrefix": "MERCEDES34" },
+    { "name": "Mercedes-Benz of Wilsonville", "apiKey": get_dealer_api_key("Mercedes-Benz of Wilsonville"), "collectionId": get_dealer_collection_id("Mercedes-Benz of Wilsonville"), "inventoryFilePrefix": "SWICKARD03" },
+    { "name": "Porsche Anchorage", "apiKey": get_dealer_api_key("Porsche Anchorage"), "collectionId": get_dealer_collection_id("Porsche Anchorage"), "inventoryFilePrefix": "SWICKARD11" },
+    { "name": "Porsche Seattle North", "apiKey": get_dealer_api_key("Porsche Seattle North"), "collectionId": get_dealer_collection_id("Porsche Seattle North"), "inventoryFilePrefix": "PORSCHES02" },
+    { "name": "Sprinter Seattle", "apiKey": get_dealer_api_key("Sprinter Seattle"), "collectionId": get_dealer_collection_id("Sprinter Seattle"), "inventoryFilePrefix": "SWICKARD22" },
+    { "name": "Sprinter Wilsonville", "apiKey": get_dealer_api_key("Sprinter Wilsonville"), "collectionId": get_dealer_collection_id("Sprinter Wilsonville"), "inventoryFilePrefix": "SWICKARD21" },
+    { "name": "Swickard Buick GMC Anchorage", "apiKey": get_dealer_api_key("Swickard Buick GMC Anchorage"), "collectionId": get_dealer_collection_id("Swickard Buick GMC Anchorage"), "inventoryFilePrefix": "SWICKARD05" },
+    { "name": "Swickard Buick GMC of Thousand Oaks", "apiKey": get_dealer_api_key("Swickard Buick GMC of Thousand Oaks"), "collectionId": get_dealer_collection_id("Swickard Buick GMC of Thousand Oaks"), "inventoryFilePrefix": "SWICKARD16" },
+    { "name": "Swickard Cadillac Anchorage", "apiKey": get_dealer_api_key("Swickard Cadillac Anchorage"), "collectionId": get_dealer_collection_id("Swickard Cadillac Anchorage"), "inventoryFilePrefix": "SWICKARD05" },
+    { "name": "Swickard Cadillac of Thousand Oaks", "apiKey": get_dealer_api_key("Swickard Cadillac of Thousand Oaks"), "collectionId": get_dealer_collection_id("Swickard Cadillac of Thousand Oaks"), "inventoryFilePrefix": "SWICKARD16" },
+    { "name": "Swickard Chevrolet Anchorage", "apiKey": get_dealer_api_key("Swickard Chevrolet Anchorage"), "collectionId": get_dealer_collection_id("Swickard Chevrolet Anchorage"), "inventoryFilePrefix": "SWICKARD05" },
+    { "name": "Swickard Chevrolet of Thousand Oaks", "apiKey": get_dealer_api_key("Swickard Chevrolet of Thousand Oaks"), "collectionId": get_dealer_collection_id("Swickard Chevrolet of Thousand Oaks"), "inventoryFilePrefix": "SWICKARD17" },
+    { "name": "Swickard GMC of Palmer", "apiKey": get_dealer_api_key("Swickard GMC of Palmer"), "collectionId": get_dealer_collection_id("Swickard GMC of Palmer"), "inventoryFilePrefix": "SWICKARD04" },
+    { "name": "Swickard Honda", "apiKey": get_dealer_api_key("Swickard Honda"), "collectionId": get_dealer_collection_id("Swickard Honda"), "inventoryFilePrefix": "SWICKARD06" },
+    { "name": "Swickard Honda of Thousand Oaks", "apiKey": get_dealer_api_key("Swickard Honda of Thousand Oaks"), "collectionId": get_dealer_collection_id("Swickard Honda of Thousand Oaks"), "inventoryFilePrefix": "SWICKARD13" },
+    { "name": "Swickard Toyota", "apiKey": get_dealer_api_key("Swickard Toyota"), "collectionId": get_dealer_collection_id("Swickard Toyota"), "inventoryFilePrefix": "SWICKARD07" },
+    { "name": "Swickard Toyota 101", "apiKey": get_dealer_api_key("Swickard Toyota 101"), "collectionId": get_dealer_collection_id("Swickard Toyota 101"), "inventoryFilePrefix": "SWICKARD23" },
+    { "name": "Swickard Volkswagen of Anchorage", "apiKey": get_dealer_api_key("Swickard Volkswagen of Anchorage"), "collectionId": get_dealer_collection_id("Swickard Volkswagen of Anchorage"), "inventoryFilePrefix": "SWICKARD11" },
+    { "name": "Volkswagen of Bellingham", "apiKey": get_dealer_api_key("Volkswagen of Bellingham"), "collectionId": get_dealer_collection_id("Volkswagen of Bellingham"), "inventoryFilePrefix": "SWICKARD20" },
+    { "name": "Volvo Cars Bellevue", "apiKey": get_dealer_api_key("Volvo Cars Bellevue"), "collectionId": get_dealer_collection_id("Volvo Cars Bellevue"), "inventoryFilePrefix": "SWICKARD08" },
+    { "name": "Volvo Cars Seattle", "apiKey": get_dealer_api_key("Volvo Cars Seattle"), "collectionId": get_dealer_collection_id("Volvo Cars Seattle"), "inventoryFilePrefix": "SWICKARD09" },
+    { "name": "Volvo Cars Southwest Houston", "apiKey": get_dealer_api_key("Volvo Cars Southwest Houston"), "collectionId": get_dealer_collection_id("Volvo Cars Southwest Houston"), "inventoryFilePrefix": "SWICKARD10" }
+]
+
+# Dictionary of dealer name variants to process for shared inventory
+DEALER_NAME_VARIANTS = {
+
+    "Mercedes-Benz of Seattle": ["Sprinter Seattle"],
+    "Mercedes-Benz of Wilsonville": ["Sprinter Wilsonville"],
+    "Swickard Buick GMC of Thousand Oaks": ["Swickard Cadillac of Thousand Oaks"],
+    "Porsche Anchorage": ["Audi Anchorage", "Swickard Volkswagen of Anchorage"],
+    "Swickard Buick GMC Anchorage": ["Swickard Cadillac Anchorage", "Swickard Chevrolet Anchorage"],
+    "Audi Bellingham": ["Volkswagen of Bellingham"]
+}
+
+# Shared inventory files and the dealers that share them
+# First dealer in each list will be the primary dealer that processes the file
+SHARED_INVENTORIES = {
+    # Anchorage Audi/Porsche/VW - Primary: Porsche Anchorage
+    "SWICKARD11U": ["Porsche Anchorage", "Audi Anchorage", "Swickard Volkswagen of Anchorage"],
+    # Anchorage Buick/GMC/Cadillac/Chevrolet - Primary: Buick GMC
+    "SWICKARD05U": ["Swickard Buick GMC Anchorage", "Swickard Cadillac Anchorage", "Swickard Chevrolet Anchorage"],
+    # Thousand Oaks Buick/GMC/Cadillac - Primary: Buick GMC
+    "SWICKARD16U": ["Swickard Buick GMC of Thousand Oaks", "Swickard Cadillac of Thousand Oaks"],
+    # Bellingham Audi/VW - Primary: Audi
+    "SWICKARD20U": ["Audi Bellingham", "Volkswagen of Bellingham"],
+    # Seattle Mercedes/Sprinter - Primary: Mercedes
+    "SWICKARD02U": ["Mercedes-Benz of Seattle", "Sprinter Seattle"],
+    # Wilsonville Mercedes/Sprinter - Primary: Mercedes
+    "SWICKARD03U": ["Mercedes-Benz of Wilsonville", "Sprinter Wilsonville"]
+}
+
+# Define search URL templates for dealerships that need them
+# Audi stores use VIN-based URLs
+DEALER_SEARCH_URLS = {
+    "Porsche Anchorage": "https://www.porscheanchorage.com/searchused.aspx?q=",
+    "Swickard Volkswagen of Anchorage": "https://www.volkswagenanchorage.com/searchused.aspx?q=",
+    "Audi Anchorage": "https://www.audiofanchorage.com/en/inventory/vehicle/?isdealer&market=usuc&vehicleId=",  # VIN-based
+    "Audi Bellingham": "https://www.audibellingham.com/en/inventory/vehicle/?isdealer&market=usuc&vehicleId=",  # VIN-based
+    "Audi Oakland": "https://www.audioakland.com/en/inventory/vehicle/?isdealer&market=usuc&vehicleId=",  # VIN-based
+    "Audi Palo Alto": "https://www.audipaloalto.com/en/inventory/vehicle/?isdealer&market=usuc&vehicleId=",  # VIN-based
+    "Volkswagen of Bellingham": "https://www.volkswagenofbellingham.com/searchused.aspx?q=",
+    "Swickard Buick GMC Anchorage": "https://www.swickardanchorage.com/searchused.aspx?q=",
+    "Swickard Cadillac Anchorage": "https://www.cadillacanchorage.com/searchused.aspx?q=",
+    "Swickard Chevrolet Anchorage": "https://www.swickardanchorage.com/searchused.aspx?q=",
+
+
+    "Land Rover San Francisco": "https://www.landroversanfrancisco.com/used-inventory/index.htm?search=",
+    "Land Rover Redwood City": "https://www.landroverrc.com/used-inventory/index.htm?search=",
+    "Land Rover Thousand Oaks": "https://www.landroverthousandoaks.com/used-inventory/index.htm?accountId=landroverthousandoakslr&search=",
+    "Mercedes-Benz of Thousand Oaks": "https://www.mbzthousandoaks.com/searchused.aspx?q=",
+    "Swickard Buick GMC of Thousand Oaks": "https://www.swickardbuickgmcthousandoaks.com/searchused.aspx?q=",
+    "Swickard Cadillac of Thousand Oaks": "https://www.cadillacthousandoaks.com/searchused.aspx?q="
+}
+
+# Dealers that should use VIN instead of stock number for search URLs
+VIN_BASED_DEALERS = ["Audi Anchorage", "Audi Bellingham", "Audi Oakland", "Audi Palo Alto"]
+
+def get_price_field(inventory_items):
+    """
+    Find the price field name in the inventory data.
+    Returns the first matching field name from common variants.
+    """
+    if not inventory_items:
+        return None
+        
+    price_fields = ["Price_Is", "price", "PRICE", "Internet_Price", "INTERNET_PRICE", "Sale_Price", "SALE_PRICE"]
+    sample_item = inventory_items[0]
+    
+    for field in price_fields:
+        if field in sample_item:
+            return field
+    
+    return None
+
+def get_stock_field(inventory_items):
+    """
+    Find the stock number field name in the inventory data.
+    Returns the first matching field name from common variants.
+    """
+    if not inventory_items:
+        return None
+        
+    stock_fields = ["Stock", "stock", "STOCK", "id", "ID", "stock_number", "STOCK_NUMBER"]
+    sample_item = inventory_items[0]
+    
+    for field in stock_fields:
+        if field in sample_item:
+            return field
+    
+    return None
+
+def filter_by_stock_numbers(inventory_items, stock_numbers, min_count=9, max_price=None, min_price=None, exclude_numbers=None):
+    """
+    Filter inventory by stock numbers, ensuring minimum count.
+    If less than min_count vehicles match stock numbers, add more vehicles.
+    
+    Args:
+        inventory_items: List of inventory items
+        stock_numbers: List of stock numbers to filter by (include list)
+        min_count: Minimum number of vehicles to return (default 9)
+        max_price: Maximum price for additional vehicles (optional)
+        exclude_numbers: List of stock numbers to strictly exclude (optional)
+        
+    Returns:
+        Filtered list of inventory items
+    """
+    if not inventory_items:
+        logging.warning("No inventory items to filter by stock numbers")
+        return inventory_items[:min_count]  # Return first min_count items
+        
+    stock_field = get_stock_field(inventory_items)
+    
+    if not stock_field:
+        logging.warning("No stock number field found in inventory data")
+        return inventory_items[:min_count]  # Return first min_count items
+    
+    # Handle exclude list if provided
+    if exclude_numbers:
+        # First remove any excluded vehicles
+        original_count = len(inventory_items)
+        inventory_items = [item for item in inventory_items if item.get(stock_field) not in exclude_numbers]
+        excluded_count = original_count - len(inventory_items)
+        if excluded_count > 0:
+            logging.info(f"Excluded {excluded_count} vehicles from exclusion list")
+    
+    # First, get all items with matching stock numbers
+    matching_items = [item for item in inventory_items if item.get(stock_field) in stock_numbers]
+    logging.info(f"Filtered to {len(matching_items)} vehicles from stock list (min required: {min_count})")
+    
+    # If we don't have enough matching items, add more from inventory
+    if len(matching_items) < min_count:
+        # Get items that weren't matched (and not excluded)
+        remaining_items = [item for item in inventory_items if item.get(stock_field) not in stock_numbers]
+        
+        # If max_price specified, filter remaining items by price
+        if max_price is not None:
+            remaining_items = filter_by_price(remaining_items, max_price, min_price)
+        
+        # Add items until we reach min_count or run out
+        items_needed = min_count - len(matching_items)
+        matching_items.extend(remaining_items[:items_needed])
+        
+        logging.info(f"Added {min(items_needed, len(remaining_items))} additional vehicles to reach minimum count")
+    
+    logging.info(f"Final filtered count: {len(matching_items)} vehicles")
+    return matching_items
+
+def filter_by_production_criteria(inventory_items, strict_mode=False):
+    """
+    Filter inventory items by production-level criteria:
+    - Condition must be USED (if field exists)
+    - Minimum field count (10 fields)
+    - Required fields present (stock number, image URL, vehicle URL)
+    
+    Args:
+        inventory_items: List of inventory items
+        strict_mode: Whether to apply strict filtering (default False)
+            If False, only require stock number and condition (if field exists)
+            If True, require all fields to be present
+        
+    Returns:
+        Filtered list of inventory items
+    """
+    if not inventory_items:
+        logging.warning("No inventory items for production criteria filtering")
+        return inventory_items
+    
+    logging.info(f"Applying production criteria filter on {len(inventory_items)} vehicles")
+    
+    # Track filter statistics
+    skipped_condition = 0
+    skipped_fields = 0
+    skipped_url = 0
+    skipped_image = 0
+    skipped_stock = 0
+    
+    # Find relevant field names
+    condition_field = None
+    for field in ["condition", "CONDITION"]:
+        if any(field in item for item in inventory_items):
+            condition_field = field
+            break
+            
+    stock_field = get_stock_field(inventory_items)
+    
+    image_field = None
+    for field in ["image_link", "PHOTO", "Main_Photo", "main_photo", "photo"]:
+        if any(field in item for item in inventory_items):
+            image_field = field
+            break
+            
+    url_field = None
+    for field in ["link_template", "vdp_url_1", "link", "url", "URL"]:
+        if any(field in item for item in inventory_items):
+            url_field = field
+            break
+    
+    logging.info(f"Production filter using fields: condition={condition_field}, stock={stock_field}, image={image_field}, url={url_field}")
+    
+    # Apply filters
+    filtered_items = []
+    strict_filtered = []  # For comparison and logging
+    
+    for item in inventory_items:
+        # Create flags for each filter type for more granular control
+        condition_ok = True
+        fields_count_ok = True
+        stock_ok = True
+        url_ok = True
+        image_ok = True
+        
+        # 1. Check minimum fields (at least 10 fields required)
+        if len(item) < 10:
+            fields_count_ok = False
+            skipped_fields += 1
+        
+        # 2. Check condition (must be USED if field exists)
+        if condition_field and item.get(condition_field, "").upper() != 'USED':
+            condition_ok = False
+            skipped_condition += 1
+        
+        # 3. Check required fields
+        
+        # Stock number required - essential
+        if not stock_field or not item.get(stock_field):
+            stock_ok = False
+            skipped_stock += 1
+        
+        # Vehicle URL - important but might be generatable 
+        if not url_field or not item.get(url_field):
+            url_ok = False
+            skipped_url += 1
+        
+        # Image URL - important but might be generatable
+        if not image_field or not item.get(image_field):
+            image_ok = False
+            skipped_image += 1
+        
+        # For strict filtering, require all checks to pass
+        if condition_ok and fields_count_ok and stock_ok and url_ok and image_ok:
+            strict_filtered.append(item)
+            
+        # For lenient filtering, only require stock number and condition (if field exists)
+        if stock_ok and (condition_ok or not condition_field):
+            filtered_items.append(item)
+    
+    # Log detailed filter results
+    logging.info(f"Production filter stats: original={len(inventory_items)}, condition_skip={skipped_condition}, fields_skip={skipped_fields}, stock_skip={skipped_stock}, url_skip={skipped_url}, image_skip={skipped_image}")
+    logging.info(f"Production filter results: strict={len(strict_filtered)}, lenient={len(filtered_items)}")
+    
+    # Return appropriate filtered list based on mode
+    if strict_mode:
+        # Check if strict filtering removed everything
+        if len(strict_filtered) == 0 and len(inventory_items) > 0:
+            logging.warning("Strict production filtering removed all vehicles! Falling back to lenient filtering.")
+            return filtered_items
+        return strict_filtered
+    else:
+        # Check if lenient filtering removed everything
+        if len(filtered_items) == 0 and len(inventory_items) > 0:
+            logging.warning("All vehicles filtered out by production criteria! Returning original inventory.")
+            return inventory_items
+    return filtered_items
+
+def filter_inventory_items(inventory_items, stock_numbers=None, min_count=9, max_price=None, min_price=None, apply_production_filters=True, strict_production_mode=False, exclude_numbers=None):
+    """
+    Filter inventory with multiple filter criteria and fallback logic:
+    1. Apply production-level filters (condition, required fields)
+    2. Apply price filter to exclude vehicles over max_price
+    3. Apply stock number filter if provided (with exclusions)
+    4. If less than min_count vehicles after filtering, add more vehicles (under max_price)
+    5. If not enough vehicles available, return all available under max_price
+    
+    Args:
+        inventory_items: List of inventory items
+        stock_numbers: List of stock numbers to filter by (optional)
+        min_count: Minimum number of vehicles to return (default 9)
+        max_price: Maximum price for vehicles (optional)
+        apply_production_filters: Whether to apply production-level filters (default True)
+        strict_production_mode: Whether to use strict production filtering (default False)
+        exclude_numbers: List of stock numbers to strictly exclude (optional)
+        
+    Returns:
+        Filtered list of inventory items
+    """
+    if not inventory_items:
+        logging.warning("No inventory items for filtering")
+        return inventory_items
+        
+    filtered_items = inventory_items.copy()
+    original_count = len(filtered_items)
+    
+    # First apply production-level filters if enabled
+    if apply_production_filters:
+        filtered_items = filter_by_production_criteria(filtered_items, strict_production_mode)
+        logging.info(f"Production filters applied: {original_count} → {len(filtered_items)} vehicles")
+    
+    # Then apply the price filter if specified
+    if max_price is not None:
+        price_filter_count = len(filtered_items)
+        # Use global MIN_PRICE if defined, otherwise no minimum filter
+        min_price_filter = globals().get('MIN_PRICE')
+        filtered_items = filter_by_price(filtered_items, max_price, min_price_filter)
+        price_range = f"${min_price_filter:,}-${max_price:,}" if min_price_filter else f"up to ${max_price:,}"
+        logging.info(f"Price filter applied: {price_filter_count} → {len(filtered_items)} vehicles (price range: {price_range})")
+    
+    # Apply mileage filter to exclude "coming soon" vehicles
+    min_mileage_filter = globals().get('MIN_MILEAGE', 100)
+    if min_mileage_filter and min_mileage_filter > 0:
+        mileage_filter_count = len(filtered_items)
+        filtered_items = filter_by_mileage(filtered_items, min_mileage_filter)
+        logging.info(f"Mileage filter applied: {mileage_filter_count} → {len(filtered_items)} vehicles (min mileage: {min_mileage_filter} miles)")
+    
+    # Apply either EV priority filter OR stock number filter based on configuration
+    if USE_EV_PRIORITY_FILTER:
+        # TEMPORARY: Use EV priority filter for tax credit campaign
+        logging.info("[EV CAMPAIGN MODE] Using EV priority filter instead of standard stock filter")
+        filtered_items = apply_ev_priority_filter(filtered_items, stock_numbers or [], min_count, exclude_numbers)
+    elif stock_numbers:
+        # Standard stock number filtering
+        filtered_items = filter_by_stock_numbers(filtered_items, stock_numbers, min_count, max_price, min_price, exclude_numbers)
+    
+    return filtered_items
+
+def filter_by_price(inventory_items, max_price, min_price=None):
+    """
+    Filter inventory items by price, excluding those over max_price or at/below min_price.
+    
+    Args:
+        inventory_items: List of inventory items
+        max_price: Maximum price (numeric)
+        min_price: Minimum price (numeric, optional) - excludes vehicles at or below this price
+        
+    Returns:
+        Filtered list of inventory items
+    """
+    filtered_items = []
+    price_field = get_price_field(inventory_items)
+    
+    if not price_field:
+        logging.warning("No price field found in inventory data")
+        return inventory_items
+    
+    excluded_too_low = 0
+    excluded_too_high = 0
+    excluded_no_price = 0
+    
+    for item in inventory_items:
+        # Get price as string first
+        price_str = item.get(price_field, "")
+        
+        try:
+            # Remove non-numeric characters except decimal point
+            price_clean = ''.join(c for c in price_str if c.isdigit() or c == '.')
+            
+            # Handle empty price
+            if not price_clean:
+                # Exclude items with no price to prevent $0 vehicles
+                excluded_no_price += 1
+                continue
+            
+            price = float(price_clean)
+            
+            # Exclude items at or below minimum price (if specified)
+            if min_price is not None and price <= min_price:
+                excluded_too_low += 1
+                continue
+            
+            # Exclude items over maximum price
+            if price > max_price:
+                excluded_too_high += 1
+                continue
+                
+            # Include items within price range
+            filtered_items.append(item)
+                
+        except ValueError as e:
+            logging.warning(f"Could not parse price '{price_str}': {str(e)}")
+            # Exclude items with unparseable prices to prevent data quality issues
+            excluded_no_price += 1
+            continue
+    
+    # Log filtering statistics
+    if excluded_too_low > 0 or excluded_too_high > 0 or excluded_no_price > 0:
+        price_range = f"${min_price:,}-${max_price:,}" if min_price else f"up to ${max_price:,}"
+        logging.info(f"Price filter ({price_range}): excluded {excluded_too_low} too low, {excluded_too_high} too high, {excluded_no_price} no/invalid price")
+    
+    return filtered_items
+
+def filter_by_mileage(inventory_items, min_mileage=100):
+    """
+    Filter inventory items by mileage, excluding those with less than min_mileage.
+    This helps filter out "coming soon" vehicles that haven't been driven yet.
+    
+    Args:
+        inventory_items: List of inventory items
+        min_mileage: Minimum mileage (numeric) - excludes vehicles below this mileage
+        
+    Returns:
+        Filtered list of inventory items
+    """
+    filtered_items = []
+    
+    # Find mileage field name
+    mileage_field = None
+    for field in ["Mileage", "mileage", "MILEAGE", "Odometer", "odometer", "Miles"]:
+        if any(field in item for item in inventory_items):
+            mileage_field = field
+            break
+    
+    if not mileage_field:
+        logging.warning("No mileage field found in inventory data - skipping mileage filter")
+        return inventory_items
+    
+    excluded_low_mileage = 0
+    excluded_no_mileage = 0
+    
+    for item in inventory_items:
+        # Get mileage as string first
+        mileage_str = item.get(mileage_field, "")
+        
+        try:
+            # Remove non-numeric characters except decimal point
+            mileage_clean = ''.join(c for c in str(mileage_str) if c.isdigit() or c == '.')
+            
+            # Handle empty mileage
+            if not mileage_clean:
+                # Include items with no mileage data (don't assume they're new)
+                filtered_items.append(item)
+                continue
+            
+            mileage = float(mileage_clean)
+            
+            # Exclude items below minimum mileage
+            if mileage < min_mileage:
+                excluded_low_mileage += 1
+                continue
+                
+            # Include items with sufficient mileage
+            filtered_items.append(item)
+                
+        except ValueError as e:
+            logging.warning(f"Could not parse mileage '{mileage_str}': {str(e)}")
+            # Include items with unparseable mileage (don't assume they're new)
+            filtered_items.append(item)
+            continue
+    
+    # Log filtering statistics
+    if excluded_low_mileage > 0:
+        logging.info(f"Mileage filter (min {min_mileage} miles): excluded {excluded_low_mileage} vehicles with too low mileage")
+    
+    return filtered_items
+
+# ============================================================================
+# EV PRIORITY FILTER - TEMPORARY FOR EV TAX CREDIT CAMPAIGN
+# Remove or set USE_EV_PRIORITY_FILTER = False after campaign ends
+# ============================================================================
+
+def apply_ev_priority_filter(inventory_items, stock_numbers, min_count=12, exclude_numbers=None):
+    """
+    TEMPORARY: Prioritize electric vehicles for tax credit campaign.
+    This function scores and sorts vehicles based on EV characteristics.
+    
+    Priority Order:
+    1. Pure EVs (BEV) from stock list
+    2. Plug-in Hybrids (PHEV) from stock list  
+    3. Other EVs/PHEVs not in stock list
+    4. Regular hybrids
+    5. Regular vehicles from stock list
+    6. Remaining vehicles
+    
+    Args:
+        inventory_items: List of inventory items
+        stock_numbers: List of stock numbers to prioritize
+        min_count: Minimum number of vehicles to return
+        exclude_numbers: List of stock numbers to exclude
+    """
+    
+    # Handle exclusion list first if provided
+    if exclude_numbers:
+        stock_field = get_stock_field(inventory_items)
+        if stock_field:
+            original_count = len(inventory_items)
+            inventory_items = [item for item in inventory_items if item.get(stock_field) not in exclude_numbers]
+            excluded_count = original_count - len(inventory_items)
+            if excluded_count > 0:
+                logging.info(f"[EV FILTER] Excluded {excluded_count} vehicles from exclusion list")
+    
+    # Comprehensive EV detection patterns
+    pure_ev_models = [
+        # Tesla
+        'model 3', 'model s', 'model x', 'model y', 'cybertruck',
+        # Audi
+        'e-tron', 'etron', 'e tron', 'q4 e-tron', 'q8 e-tron', 'rs e-tron',
+        # BMW
+        'i3', 'i4', 'i7', 'ix', 'ix1', 'ix3', 'ixm60', 'ix xdrive',
+        # Mercedes-Benz
+        'eqa', 'eqb', 'eqc', 'eqe', 'eqs', 'eqv',
+        # Porsche
+        'taycan',
+        # Volkswagen
+        'id.3', 'id.4', 'id.5', 'id.6', 'id.buzz', 'id3', 'id4',
+        # Volvo
+        'xc40 recharge', 'c40 recharge', 'ex30', 'ex90',
+        # Hyundai/Kia/Genesis
+        'ioniq 5', 'ioniq 6', 'ioniq5', 'ioniq6', 'kona electric', 'ev6', 'ev9', 
+        'niro ev', 'gv60', 'gv70 electrified', 'electrified g80',
+        # Nissan
+        'leaf', 'ariya',
+        # Ford
+        'mustang mach-e', 'mach-e', 'f-150 lightning', 'lightning',
+        # Chevrolet/GMC
+        'bolt', 'bolt euv', 'silverado ev', 'blazer ev', 'equinox ev', 'hummer ev',
+        # Lexus/Toyota
+        'rz', 'rz450e', 'bz4x', 'ux 300e',
+        # Others
+        'lyriq', 'r1t', 'r1s', 'ocean', 'lucid', 'polestar'
+    ]
+    
+    phev_models = [
+        'plug-in', 'plugin', 'phev', 't8', 'e hybrid', 'e-hybrid',
+        # BMW
+        '330e', '530e', '545e', '745e', 'x3 xdrive30e', 'x5 xdrive45e',
+        # Mercedes
+        'e 300 e', 'e 350 e', 'gle 350de', 'c 350 e', 's 580 e',
+        # Audi
+        'tfsi e', '50 tfsi e', '55 tfsi e', '60 tfsi e', 'a3 e-tron',
+        # Porsche
+        'cayenne e-hybrid', 'panamera e-hybrid', 'turbo s e-hybrid',
+        # Volvo
+        't8 recharge', 't6 recharge',
+        # Toyota
+        'prius prime', 'rav4 prime',
+        # Jeep
+        'wrangler 4xe', 'grand cherokee 4xe', '4xe',
+        # Land Rover
+        'p400e', 'p440e',
+        # Others
+        'pacifica hybrid', 'outlander phev', 'escape plug-in'
+    ]
+    
+    hybrid_models = [
+        'hybrid', 'hev', 
+        'prius', 'camry hybrid', 'corolla hybrid', 'highlander hybrid',
+        'accord hybrid', 'cr-v hybrid', 'insight',
+        '300h', '350h', '450h', '500h'  # Lexus hybrid suffixes
+    ]
+    
+    def calculate_ev_score(item):
+        """Calculate EV priority score"""
+        score = 0
+        
+        # Get fields
+        model = str(item.get('Model', '')).lower()
+        make = str(item.get('Make', '')).lower()
+        fuel = str(item.get('Fuel_Type', '') or item.get('fuel_type', '')).lower()
+        full_model = f"{make} {model}"
+        
+        # Check fuel type (most reliable)
+        if any(term in fuel for term in ['electric', 'ev', 'bev']):
+            score += 1000
+        elif any(term in fuel for term in ['plug-in', 'plugin', 'phev']):
+            score += 700
+        elif 'hybrid' in fuel:
+            score += 400
+        
+        # Check model names
+        for ev_model in pure_ev_models:
+            if ev_model in full_model:
+                score = max(score, 1000)  # Use max to avoid double counting
+                break
+        
+        if score < 1000:  # Only check PHEV if not already identified as pure EV
+            for phev_model in phev_models:
+                if phev_model in full_model:
+                    score = max(score, 700)
+                    break
+        
+        if score < 700:  # Only check hybrid if not EV or PHEV
+            for hybrid_model in hybrid_models:
+                if hybrid_model in full_model:
+                    score = max(score, 400)
+                    break
+        
+        # Stock number bonus
+        stock_field = get_stock_field(inventory_items)
+        if stock_field and item.get(stock_field) in stock_numbers:
+            score += 200  # Significant bonus but doesn't override EV type
+        
+        # Year bonus for newer vehicles
+        try:
+            year = int(item.get('Year', 0))
+            if year >= 2021:
+                score += 50
+        except:
+            pass
+        
+        return score
+    
+    # Score all vehicles
+    scored_vehicles = [(calculate_ev_score(item), item) for item in inventory_items]
+    scored_vehicles.sort(key=lambda x: x[0], reverse=True)
+    
+    # Count vehicle types
+    pure_ev_count = sum(1 for score, _ in scored_vehicles if score >= 1000)
+    phev_count = sum(1 for score, _ in scored_vehicles if 700 <= score < 1000)
+    hybrid_count = sum(1 for score, _ in scored_vehicles if 400 <= score < 700)
+    
+    logging.info(f"[EV FILTER] Found: {pure_ev_count} EVs, {phev_count} PHEVs, {hybrid_count} Hybrids")
+    
+    # Return top vehicles
+    result = [item for score, item in scored_vehicles[:min_count]]
+    
+    # Log what we're returning
+    result_evs = sum(1 for i in range(min(min_count, len(scored_vehicles))) if scored_vehicles[i][0] >= 1000)
+    result_phevs = sum(1 for i in range(min(min_count, len(scored_vehicles))) if 700 <= scored_vehicles[i][0] < 1000)
+    logging.info(f"[EV FILTER] Returning {result_evs} EVs, {result_phevs} PHEVs in top {len(result)} vehicles")
+    
+    return result
+
+def download_inventory_file(ftp, filename):
+    """Download an inventory file from FTP server to a temporary file"""
+    try:
+        temp_fd, temp_path = tempfile.mkstemp(suffix='.csv')
+        temp_file = os.fdopen(temp_fd, 'wb')
+        
+        logging.info(f"Downloading file: {filename}")
+        ftp.retrbinary(f"RETR {filename}", temp_file.write)
+        
+        logging.info(f"File downloaded to: {temp_path}")
+        temp_file.close()
+        return temp_path
+    except Exception as e:
+        logging.error(f"Error downloading file {filename}: {str(e)}")
+        return None
+    finally:
+        if 'temp_file' in locals() and temp_file:
+            temp_file.close()
+
+def get_url_pattern(dealer_name):
+    """Get URL pattern for a dealership"""
+    dealership_url_patterns = {
+        "Acura Thousand Oaks": ["acurathousandoaks.com"],
+        "Audi Anchorage": ["audianchorage.com"],
+        "Audi Bellingham": ["audibellingham.com"],
+        "Audi Oakland": ["audioakland.com"],
+        "Audi Palo Alto": ["audipaloalto.com"],
+        "BMW of Eugene": ["bmwofeugene.com"],
+        "BMW of Lynnwood": ["bmwlynnwood.com", "bmwoflynnwood.com"],
+        "Crown Toyota": ["crowntoyota.com"],
+        "Gresham Toyota": ["greshamtoyota.com"],
+
+        "Land Rover Redwood City": ["landroverredwoodcity.com", "landrover.com", "redwoodcity.com"],
+        "Land Rover Thousand Oaks": ["landroverthousandoaks.com"],
+        "Lexus of Fremont": ["lexusfremont.com", "lexusoffremont.com"],
+        "Lexus of Thousand Oaks": ["lexusofthousandoaks.com"],
+        "Mercedes-Benz of Anchorage": ["mercedesbenzanchorage.com", "mbanchorage.com"],
+        "Mercedes-Benz of Honolulu": ["mercedesbenzofhonolulu.com", "mbhonolulu.com"],
+        "Mercedes-Benz of Marin": ["mbofmarin.com", "mercedesbenzofmarin.com"],
+        "Mercedes-Benz of Maui": ["mercedesbenzofmaui.com", "mbmaui.com"],
+        "Mercedes-Benz of Palo Alto": ["mercedesbenzpaloalto.com", "mbpaloalto.com"],
+        "Mercedes-Benz of Seattle": ["mbseattle.com", "mercedesbenzofseattle.com"],
+        "Mercedes-Benz of South Austin": ["mbsouthaustin.com"],
+        "Mercedes-Benz of Thousand Oaks": ["mbzthousandoaks.com", "mercedesbenzofthousandoaks.com"],
+        "Mercedes-Benz of Wilsonville": ["mercedesbenzwilsonville.com"],
+        "Porsche Anchorage": ["porscheanchorage.com"],
+        "Porsche Seattle North": ["porscheseattlenorth.com"],
+        "Sprinter Seattle": ["sprinterseattle.com"],
+        "Sprinter Wilsonville": ["sprinterwilsonville.com"],
+        "Swickard Buick GMC Anchorage": ["swickardbuickgmcanchorage.com"],
+        "Swickard Buick GMC of Thousand Oaks": ["swickardbuickgmcthousandoaks.com"],
+        "Swickard Cadillac Anchorage": ["swickardcadillacanchorage.com"],
+        "Swickard Cadillac of Thousand Oaks": ["swickardcadillacthousandoaks.com"],
+        "Swickard Chevrolet Anchorage": ["swickardchevroletanchorage.com"],
+        "Swickard Chevrolet of Thousand Oaks": ["swickardchevroletthousandoaks.com"],
+        "Swickard GMC of Palmer": ["swickardgmcpalmer.com"],
+        "Swickard Honda": ["swickardhonda.com"],
+        "Swickard Honda of Thousand Oaks": ["hondaofthousandoaks.com"],
+        "Swickard Toyota": ["swickardtoyota.com"],
+        "Swickard Toyota 101": ["swickardtoyota101.com"],
+        "Swickard Volkswagen of Anchorage": ["vwanchorage.com"],
+        "Volkswagen of Bellingham": ["vwbellingham.com"],
+        "Volvo Cars Bellevue": ["volvocarsbellevue.com"],
+        "Volvo Cars Seattle": ["volvocarsseattle.com"],
+        "Volvo Cars Southwest Houston": ["volvocarssouthwesthouston.com"]
+    }
+    
+    # Special case handling for Land Rover dealerships
+    if dealer_name in ["Land Rover San Francisco", "Land Rover Redwood City"]:
+        # Return a more permissive pattern that will match most URLs
+        return ["landrover", "sf", "sanfrancisco", "redwoodcity"]
+    
+    # Get the base patterns for this dealer
+    patterns = dealership_url_patterns.get(dealer_name, [])
+    
+    # Extract location name from the dealer name
+    location = None
+    if " of " in dealer_name:
+        location = dealer_name.split(" of ")[1].lower()
+    elif " Cars " in dealer_name:
+        location = dealer_name.split(" Cars ")[1].lower()
+    elif dealer_name.startswith("Swickard "):
+        parts = dealer_name.split(" ")
+        if len(parts) > 2 and "of" in parts:
+            of_index = parts.index("of")
+            if of_index + 1 < len(parts):
+                location = " ".join(parts[of_index+1:]).lower()
+        elif len(parts) > 2:
+            location = parts[-1].lower()
+    else:
+        parts = dealer_name.split(" ")
+        if len(parts) > 1:
+            location = parts[-1].lower()
+    
+    # Add location as a pattern
+    if location and location not in ["the", "a", "auto", "group"]:
+        if " " in location:
+            patterns.append(location)
+            patterns.append(location.replace(" ", ""))
+            patterns.append(location.replace(" ", "-"))
+        else:
+            patterns.append(location)
+    
+    # Extract brand from name
+    brand = None
+    if " of " in dealer_name:
+        brand = dealer_name.split(" of ")[0].lower()
+    elif "Cars" in dealer_name:
+        brand = dealer_name.split(" Cars")[0].lower()
+    elif dealer_name.startswith("Swickard "):
+        parts = dealer_name.split(" ")
+        if len(parts) > 1:
+            brand = parts[1].lower()
+    else:
+        parts = dealer_name.split(" ")
+        if len(parts) > 0:
+            brand = parts[0].lower()
+    
+    # Add brand as a pattern
+    if brand and brand not in ["the", "a", "auto", "group"]:
+        patterns.append(brand)
+    
+    # If no patterns found, allow all URLs for this dealer
+    if not patterns:
+        logging.warning(f"No URL patterns defined for {dealer_name}, allowing all URLs")
+        return [""]  # Empty string will match any URL
+    
+    return patterns
+
+def format_number_with_commas(number_string):
+    """Format a numeric string with commas as thousands separators"""
+    if not number_string:
+        return ''
+    
+    # Remove any non-numeric characters except for decimal points
+    clean_number = ''.join(c for c in number_string if c.isdigit() or c == '.')
+    
+    if not clean_number:
+        return ''
+    
+    # Convert to integer if possible (no decimal point)
+    if '.' not in clean_number:
+        try:
+            return f"{int(clean_number):,}"
+        except ValueError:
+            return clean_number
+    else:
+        # Handle decimal numbers
+        try:
+            return f"{float(clean_number):,.2f}"
+        except ValueError:
+            return clean_number
+
+def clean_vehicle_name(vehicle_name):
+    """Clean vehicle name by removing unwanted terms like 'theme'"""
+    if not vehicle_name:
+        return ''
+    
+    # Remove "theme" (case insensitive) and clean up extra spaces
+    import re
+    cleaned = re.sub(r'\b(bright\s+)?theme\b', '', vehicle_name, flags=re.IGNORECASE)
+    cleaned = re.sub(r'\b(dark\s+)?theme\b', '', cleaned, flags=re.IGNORECASE)
+    
+    # Clean up extra whitespace
+    cleaned = ' '.join(cleaned.split())
+    
+    return cleaned.strip()
+
+
+def process_inventory_files():
+    """Process inventory files from FTP and update Customer.io collections"""
+    try:
+        # Connect to FTP
+        logging.info(f"Connecting to FTP server {FTP_HOST}...")
+        ftp = ftplib.FTP(FTP_HOST)
+        ftp.login(FTP_USER, FTP_PASS)
+        
+        # Track which shared inventory files have been processed
+        processed_shared_files = set()
+        
+        # Track which variant dealers have been processed 
+        processed_variant_dealers = set()
+        
+        # Load stock numbers for filtering if enabled
+        stock_numbers = None
+        exclude_numbers = None
+        if USE_STOCK_FILTER:
+            if os.path.exists(STOCK_NUMBERS_FILE):
+                try:
+                    with open(STOCK_NUMBERS_FILE, 'r') as f:
+                        stock_data = json.load(f)
+                    # Handle new format with include/exclude lists
+                    if isinstance(stock_data, dict):
+                        stock_numbers = stock_data.get('include', [])
+                        exclude_numbers = stock_data.get('exclude', [])
+                        logging.info(f"Loaded {len(stock_numbers)} stock numbers to include and {len(exclude_numbers)} to exclude")
+                    else:
+                        # Legacy format - just a list of stock numbers
+                        stock_numbers = stock_data
+                        exclude_numbers = []
+                        logging.info(f"Loaded {len(stock_numbers)} stock numbers for filtering (legacy format)")
+                except Exception as e:
+                    logging.error(f"Error loading stock numbers file: {str(e)}")
+            else:
+                # Check if example file exists
+                example_file = "development/examples/Stock Numbers.example.json"
+                if os.path.exists(example_file):
+                    logging.error(f"Stock numbers file not found: {STOCK_NUMBERS_FILE}")
+                    logging.error(f"Please create one based on the example file: {example_file}")
+                    logging.error("Stock filtering will be disabled for this run")
+                else:
+                    logging.error(f"Stock numbers file not found: {STOCK_NUMBERS_FILE}")
+                    logging.error("Please create a JSON file with a list of stock numbers to filter by")
+                    logging.error("Stock filtering will be disabled for this run")
+        
+
+        
+        # Process inventory for each dealer
+        for dealer in DEALERS:
+            dealer_name = dealer["name"]
+            inventory_file_prefix = dealer["inventoryFilePrefix"]
+            api_key = dealer["apiKey"]
+            collection_id = dealer["collectionId"]
+            
+            # Skip variant dealers that we've already processed
+            if dealer_name in processed_variant_dealers:
+                logging.info(f"Skipping {dealer_name} as it has already been processed as a variant dealer")
+                continue
+                
+            # Check for missing credentials
+            if not api_key:
+                logging.error(f"Skipping {dealer_name}: Missing API key. Set DEALER_{normalize_dealer_name(dealer_name)}_API_KEY in your environment variables.")
+                continue
+                
+            if not collection_id:
+                logging.error(f"Skipping {dealer_name}: Missing collection ID. Set DEALER_{normalize_dealer_name(dealer_name)}_COLLECTION_ID in your environment variables.")
+                continue
+                
+            # Special case for Gresham Toyota which doesn't have the 'U' suffix
+            if dealer_name == "Gresham Toyota":
+                full_inventory_file = inventory_file_prefix
+            else:
+                full_inventory_file = f"{inventory_file_prefix}U"
+            
+            # Check if this is a shared inventory file
+            is_shared_file = False
+            for shared_file, dealers_list in SHARED_INVENTORIES.items():
+                if full_inventory_file == shared_file:
+                    is_shared_file = True
+                    
+                    # Skip if we've already processed this shared file
+                    if shared_file in processed_shared_files:
+                        logging.info(f"Skipping processing for {dealer_name} - shared file {shared_file} already processed")
+                        break
+                    
+                    # Process the shared inventory file (it will handle all dealers in the shared list)
+                    logging.info(f"Processing shared inventory file {shared_file} with dealers: {dealers_list}")
+                    process_inventory_file(ftp, full_inventory_file, dealer_name, collection_id, api_key, 
+                                          stock_numbers, USE_PRODUCTION_FILTERS, STRICT_PRODUCTION_MODE, exclude_numbers)
+                    
+                    # Mark this shared file as processed
+                    processed_shared_files.add(shared_file)
+                    
+                    # Mark all dealers in the shared inventory list as processed
+                    for variant_dealer in dealers_list:
+                        if variant_dealer != dealer_name:  # Don't mark the primary dealer
+                            processed_variant_dealers.add(variant_dealer)
+                            logging.info(f"Marked {variant_dealer} as processed variant dealer")
+                    break
+            
+            # If not a shared file, process normally
+            if not is_shared_file:
+                logging.info(f"Processing standard inventory for {dealer_name}")
+                process_inventory_file(ftp, full_inventory_file, dealer_name, collection_id, api_key, 
+                                     stock_numbers, USE_PRODUCTION_FILTERS, STRICT_PRODUCTION_MODE, exclude_numbers)
+        
+        # Close FTP connection
+        ftp.quit()
+        logging.info("FTP connection closed.")
+    except Exception as e:
+        logging.error(f"Error during processing: {str(e)}")
+
+def process_inventory_file(ftp, inventory_file, dealer_name, collection_id, apiKey, stock_numbers=None, apply_production_filters=True, strict_production_mode=False, exclude_numbers=None):
+    """Process an inventory file for potentially multiple dealers that share the same file.
+    
+    Args:
+        ftp: FTP connection object
+        inventory_file: Name of the inventory file
+        dealer_name: Name of the primary dealer
+        collection_id: Collection ID for the primary dealer
+        apiKey: API key for the primary dealer
+        stock_numbers: List of stock numbers to filter by (optional)
+        apply_production_filters: Whether to apply production-level filters (default True)
+        strict_production_mode: Whether to use strict production filtering (default False)
+        exclude_numbers: List of stock numbers to strictly exclude (optional)
+    """
+    try:
+        # If no dealer name provided, use a generic name for temp files
+        temp_file_prefix = dealer_name.replace(' ', '_') if dealer_name else "inventory"
+        
+        # Extra logging for Audi Palo Alto
+        if dealer_name == "Audi Palo Alto":
+            logging.info(f"SPECIAL ATTENTION: Processing inventory file {inventory_file} for {dealer_name}")
+        
+        # List files in the directory to get the full filename
+        files = []
+        ftp.retrlines('NLST', files.append)
+        
+        # Find the most recent file matching the filename prefix
+        matching_files = [f for f in files if f.startswith(inventory_file)]
+        if not matching_files:
+            logging.error(f"No inventory files found with prefix {inventory_file}")
+            return None
+        
+        # Sort files by name (which includes date) and get the latest one
+        latest_file = sorted(matching_files)[-1]
+        logging.info(f"Processing file: {latest_file}" + (f" for {dealer_name}" if dealer_name else ""))
+        
+        # Extra validation for critical dealers to prevent cross-contamination
+        if dealer_name == "Audi Palo Alto" and not latest_file.startswith("AUDIPALO01"):
+            logging.error(f"CRITICAL ERROR: File {latest_file} does not match expected prefix for Audi Palo Alto (AUDIPALO01)")
+            logging.error("This may lead to inventory cross-contamination between dealerships.")
+            logging.warning("Continuing processing but verify results carefully.")
+        
+        # Download the file to a temporary location
+        local_filename = f"temp_{temp_file_prefix}.txt"
+        with open(local_filename, 'wb') as local_file:
+            ftp.retrbinary(f"RETR {latest_file}", local_file.write)
+        
+        # Process the downloaded file
+        processed_items = []
+        total_rows = 0
+        skipped_condition = 0
+        skipped_fields = 0
+        skipped_url = 0
+        skipped_image = 0
+        urls_generated = 0
+        url_mismatch_count = 0  # Add counter for URL mismatches
+        url_validation_stats = {"valid": 0, "likely_sold": 0, "redirected": 0, "validation_failed": 0, "not_validated": 0, "validation_error": 0}
+        
+        # Get URL patterns for this dealer (for validation)
+        if dealer_name:
+            url_patterns = get_url_pattern(dealer_name)
+            logging.info(f"URL patterns for {dealer_name}: {url_patterns}")
+        
+        # Check if this is a shared inventory file
+        is_shared_inventory = False
+        if dealer_name:
+            for shared_prefix, dealers in SHARED_INVENTORIES.items():
+                if inventory_file == shared_prefix and dealer_name in dealers:
+                    is_shared_inventory = True
+                    break
+        
+        # Process CSV or pipe-delimited file
+        with open(local_filename, 'r', encoding='utf-8', errors='ignore') as file:
+            # Determine if it's a CSV or pipe-delimited file by checking first few lines
+            sample = file.read(1024)
+            file.seek(0)
+            delimiter = ',' if ',' in sample else '|'
+            
+            # Skip header row
+            header = next(csv.reader(file, delimiter=delimiter), None)
+            if not header:
+                logging.warning(f"Empty file" + (f" for {dealer_name}" if dealer_name else ""))
+                return None
+            
+            # Convert header to lowercase for easier matching
+            header = [h.lower().strip() if h else '' for h in header]
+            
+            # Create a mapping for field indices
+            field_map = {}
+            for i, field in enumerate(header):
+                field_map[field] = i
+            
+            # Process each row
+            for row in csv.reader(file, delimiter=delimiter):
+                try:
+                    total_rows += 1
+                    
+                    # Skip rows that don't have enough fields
+                    if len(row) < 10:
+                        skipped_fields += 1
+                        continue
+                    
+                    # Only process USED vehicles
+                    condition_index = field_map.get('condition', -1)
+                    if condition_index >= 0 and condition_index < len(row) and row[condition_index].upper() != 'USED':
+                        skipped_condition += 1
+                        continue
+                    
+                    # Extract fields based on header mapping
+                    vin = get_field_value(row, field_map, ['vin'])
+                    stock = get_field_value(row, field_map, ['stock', 'id', 'stock_number'])
+                    title = get_field_value(row, field_map, ['title'])
+                    
+                    # Vehicle URL with store parameter removed
+                    original_url = get_field_value(row, field_map, ['link_template', 'vdp_url_1'])
+                    if '?store=' in original_url:
+                        original_url = original_url.split('?store=')[0]
+                    
+                    # For Audi stores (VIN-based dealers), ALWAYS generate URLs and ignore FTP URLs
+                    # For shared inventory or VIN-based dealers, prioritize generating dealer-specific URLs
+                    if (is_shared_inventory or dealer_name in VIN_BASED_DEALERS) and dealer_name:
+                        # Determine which identifier to use (VIN for Audi stores, stock for others)
+                        identifier = vin if dealer_name in VIN_BASED_DEALERS and vin else stock
+                        if identifier:
+                            # Always try to generate a dealer-specific URL
+                            vehicle_url = generate_search_url(dealer_name, identifier)
+                            if vehicle_url:
+                                urls_generated += 1
+                                id_type = "VIN" if dealer_name in VIN_BASED_DEALERS else "Stock"
+                                logging.info(f"Generated search URL for {dealer_name}, {id_type}: {identifier}, URL: {vehicle_url}")
+                        else:
+                            # Fall back to original URL if we can't generate one (non-Audi only)
+                            vehicle_url = original_url if dealer_name not in VIN_BASED_DEALERS else None
+                    else:
+                        # For non-shared, non-Audi inventory, use original URL if available
+                        vehicle_url = original_url
+
+                        # If URL is missing, try to generate a search URL
+                        if not vehicle_url and dealer_name:
+                            # Determine which identifier to use (should not reach here for Audi)
+                            identifier = vin if dealer_name in VIN_BASED_DEALERS and vin else stock
+                            if identifier:
+                                generated_url = generate_search_url(dealer_name, identifier)
+                                if generated_url:
+                                    vehicle_url = generated_url
+                                    urls_generated += 1
+                                    id_type = "VIN" if dealer_name in VIN_BASED_DEALERS else "Stock"
+                                    logging.info(f"Generated search URL for {dealer_name}, {id_type}: {identifier}, URL: {vehicle_url}")
+                    
+                    # Validate URL pattern for critical dealers to prevent cross-contamination
+                    if vehicle_url and dealer_name in ["Audi Palo Alto", "Mercedes-Benz of Palo Alto"]:
+                        url_matches_dealer = False
+                        for pattern in url_patterns:
+                            if pattern and pattern in vehicle_url.lower():
+                                url_matches_dealer = True
+                                break
+                        
+                        if not url_matches_dealer:
+                            url_mismatch_count += 1
+                            logging.warning(f"URL validation: Vehicle with Stock {stock} has URL {vehicle_url} which doesn't match patterns for {dealer_name}: {url_patterns}")
+                            # We'll still process the vehicle but log a warning
+                    
+                    # Enhanced URL validation for sold vehicles (redirect detection)
+                    url_status = "not_validated"
+                    if vehicle_url:
+                        try:
+                            url_status, final_url = validate_url_for_sold_vehicle(vehicle_url)
+                            if url_status == "likely_sold":
+                                logging.info(f"URL VALIDATION: Vehicle {stock} appears sold - redirects from {vehicle_url} to {final_url}")
+                                # Include vehicle anyway but add status for tracking
+                            elif url_status == "redirected":
+                                logging.debug(f"URL redirected for {stock}: {vehicle_url} → {final_url}")
+                            elif url_status == "valid":
+                                logging.debug(f"URL validation passed for {stock}: {vehicle_url}")
+                            # For validation_failed or no_url, we just continue (include vehicle)
+                        except Exception as e:
+                            logging.debug(f"URL validation error for {stock}: {str(e)}")
+                            url_status = "validation_error"
+                    
+                    # Update URL validation statistics
+                    if url_status in url_validation_stats:
+                        url_validation_stats[url_status] += 1
+                    
+                    # Image URL
+                    image_url = get_field_value(row, field_map, ['image_link', 'main_photo'])
+                    
+                    # Price with commas
+                    price_raw = get_field_value(row, field_map, ['price', 'price_is'])
+                    price = format_number_with_commas(price_raw.split()[0] if price_raw else '')
+                    
+                    # MSRP with commas
+                    msrp_raw = get_field_value(row, field_map, ['vehicle_msrp', 'msrp', 'original_price', 'price_was'])
+                    msrp = format_number_with_commas(msrp_raw.split()[0] if msrp_raw else '')
+                    
+                    # Vehicle details
+                    make = get_field_value(row, field_map, ['make', 'brand'])
+                    model = get_field_value(row, field_map, ['model'])
+                    year = get_field_value(row, field_map, ['year'])
+                    trim = get_field_value(row, field_map, ['trim'])
+                    
+                    # CPO status
+                    cpo = get_field_value(row, field_map, ['certified_pre-owned', 'certified_pre_owned'])
+                    
+                    # Mileage with commas
+                    mileage_raw = get_field_value(row, field_map, ['mileage'])
+                    mileage = format_number_with_commas(mileage_raw.split()[0] if mileage_raw else '')
+                    
+                    # Clean vehicle name by removing "theme" and other unwanted terms
+                    cleaned_title = clean_vehicle_name(title)
+                    
+                    # Create inventory item object with required fields
+                    inventory_item = {
+                        "VIN": vin,
+                        "Stock": stock,
+                        "vehicle_name": cleaned_title,
+                        "Dealer_Name": dealer_name or "",
+                        "VDP_URL_1": vehicle_url,
+                        "Main_Photo": image_url,
+                        "Price_Is": price,
+                        "Price_Was": msrp,
+                        "Make": make,
+                        "Model": model,
+                        "Year": year,
+                        "Trim": trim,
+                        "certified_pre_owned": cpo,
+                        "Mileage": mileage,
+                        "Luxury_Subject_Line": LUXURY_SUBJECT_LINE,
+                        "Luxury_Preheader": LUXURY_PREHEADER,
+                        "Lifestyle_Subject_Line": LIFESTYLE_SUBJECT_LINE,
+                        "Lifestyle_Preheader": LIFESTYLE_PREHEADER,
+                        "url_validation_status": url_status,
+                        "last_updated": datetime.now().isoformat()
+                    }
+                    
+                    # Skip items with missing required fields
+                    missing_fields = []
+                    if not stock:
+                        missing_fields.append("stock")
+                    if not vehicle_url:
+                        missing_fields.append("vehicle_url")
+                    if not image_url:
+                        missing_fields.append("image_url")
+
+                    if missing_fields:
+                        log_prefix = f"Skipping record" + (f" for {dealer_name}" if dealer_name else "")
+                        logging.warning(f"{log_prefix} - Missing fields: {', '.join(missing_fields)}")
+                        skipped_image += 1
+                        continue
+
+                    # Enhanced price validation using raw values
+                    should_skip_price = enhanced_price_validation(price_raw, msrp_raw, stock, dealer_name)
+                    if should_skip_price:
+                        continue
+                    
+                    # Add item to processed items
+                    processed_items.append(inventory_item)
+                except Exception as e:
+                    log_prefix = f"Error processing row" + (f" for {dealer_name}" if dealer_name else "")
+                    logging.error(f"{log_prefix}: {str(e)}")
+                    continue
+        
+        # Remove temporary file
+        os.remove(local_filename)
+        
+        # Log filtering statistics
+        log_prefix = "" if not dealer_name else f"Inventory stats for {dealer_name}: "
+        logging.info(f"{log_prefix}Total={total_rows}, Skipped condition={skipped_condition}, Skipped fields={skipped_fields}, Skipped URL={skipped_url}, Skipped missing image/stock={skipped_image}, URLs generated={urls_generated}, URL mismatches={url_mismatch_count}, Final={len(processed_items)}")
+        
+        # Log URL validation statistics
+        if any(url_validation_stats.values()):
+            url_stats_str = ", ".join([f"{k}={v}" for k, v in url_validation_stats.items() if v > 0])
+            logging.info(f"{log_prefix}URL validation: {url_stats_str}")
+        
+        # Check if this is a shared inventory file from SHARED_INVENTORIES dictionary
+        if inventory_file not in SHARED_INVENTORIES:
+            # Not a shared inventory file - just process for the single dealer
+            logging.info(f"Processing inventory file for dealer: {dealer_name}")
+            
+            if processed_items:
+                # Apply filtering (production filters, price, and stock numbers)
+                filtered_items = filter_inventory_items(processed_items, stock_numbers, MIN_VEHICLES_COUNT, MAX_PRICE, MIN_PRICE,
+                                        apply_production_filters, strict_production_mode, exclude_numbers)
+                logging.info(f"Applied filtering for {dealer_name}: {len(filtered_items)} vehicles after filtering")
+                
+                # Save to JSON for reference
+                save_processed_items(dealer_name, filtered_items)
+                # Update Customer.io collection if configuration exists
+                update_customerio_collection(collection_id, apiKey, filtered_items)
+            return processed_items
+        
+        # This is a shared inventory file
+        logging.info(f"Processing shared inventory file for dealers: {SHARED_INVENTORIES[inventory_file]}")
+        
+        # For shared inventories, we'll collect all items (with different dealer names and URLs)
+        # into a single list to update the collection
+        all_items = []
+        dealer_items = {}
+        
+        # First, process the primary dealer (the one with the file)
+        primary_dealer = SHARED_INVENTORIES[inventory_file][0]
+        logging.info(f"Processing primary dealer: {primary_dealer}")
+        
+        if primary_dealer != dealer_name:
+            logging.warning(f"Expected primary dealer {primary_dealer} but got {dealer_name}")
+        
+        # Save primary dealer items and add to all_items
+        dealer_items[dealer_name] = processed_items
+        all_items.extend(processed_items)
+        
+        # Get the list of variant dealers from SHARED_INVENTORIES
+        # Make sure to include ALL dealers from the shared inventory list except the current dealer
+        variant_dealers = [d for d in SHARED_INVENTORIES[inventory_file] if d != dealer_name]
+        logging.info(f"Found {len(variant_dealers)} variant dealers from SHARED_INVENTORIES: {variant_dealers}")
+        
+        # Check if primary dealer has additional variants in DEALER_NAME_VARIANTS
+        if dealer_name in DEALER_NAME_VARIANTS:
+            for variant in DEALER_NAME_VARIANTS[dealer_name]:
+                # Only add if not already in the variant_dealers list
+                if variant not in variant_dealers and variant != dealer_name:
+                    logging.info(f"Adding variant dealer {variant} from DEALER_NAME_VARIANTS")
+                    variant_dealers.append(variant)
+        
+        # Track filtered items for each dealer to combine later
+        all_filtered_items = []
+        
+        # First, ensure primary dealer items have proper search URLs
+        primary_items_with_urls = []
+        for item in processed_items:
+            primary_item = item.copy()
+            # Ensure primary dealer name is set
+            primary_item["Dealer_Name"] = dealer_name
+            
+            # Generate search URL for primary dealer if needed
+            if dealer_name in DEALER_SEARCH_URLS:
+                # Determine which identifier to use (VIN for Audi stores, stock for others)
+                identifier = primary_item.get("VIN") if dealer_name in VIN_BASED_DEALERS and primary_item.get("VIN") else primary_item.get("Stock")
+                if identifier:
+                    vehicle_url = generate_search_url(dealer_name, identifier)
+                    if vehicle_url:
+                        id_type = "VIN" if dealer_name in VIN_BASED_DEALERS else "Stock"
+                        logging.debug(f"Generated URL for primary dealer {dealer_name}, {id_type}: {identifier}, URL: {vehicle_url}")
+                        primary_item["VDP_URL_1"] = vehicle_url
+            
+            primary_items_with_urls.append(primary_item)
+        
+        # Filter the primary dealer's items with proper URLs
+        primary_filtered = filter_inventory_items(primary_items_with_urls, stock_numbers, MIN_VEHICLES_COUNT, MAX_PRICE, MIN_PRICE,
+                                                  apply_production_filters, strict_production_mode, exclude_numbers)
+        all_filtered_items.extend(primary_filtered)
+        logging.info(f"Primary dealer {dealer_name}: {len(primary_filtered)} filtered vehicles with search URLs")
+        
+        # Now process for all variant dealers that share the same file
+        for variant_dealer in variant_dealers:
+            logging.info(f"Processing variant dealer: {variant_dealer}")
+            
+            # Get variant dealer's API key and collection ID from DEALERS configuration
+            variant_dealer_config = next((d for d in DEALERS if d["name"] == variant_dealer), None)
+            if not variant_dealer_config:
+                logging.warning(f"Missing configuration for variant dealer {variant_dealer}")
+                continue
+            
+            variant_api_key = variant_dealer_config.get("apiKey")
+            variant_collection_id = variant_dealer_config.get("collectionId")
+            
+            if not variant_api_key or not variant_collection_id:
+                logging.info(f"Using primary dealer's credentials for variant dealer {variant_dealer}")
+                variant_api_key = apiKey
+                variant_collection_id = collection_id
+                
+            # For each variant dealer, duplicate primary items and update dealer name
+            # and generate dealer-specific URLs where applicable
+            variant_items = []
+            for item in processed_items:
+                # Create a deep copy of the item to ensure we don't modify the original
+                variant_item = item.copy()
+                
+                # IMPORTANT: Update the dealer name to the variant dealer name
+                variant_item["Dealer_Name"] = variant_dealer
+                
+                # Try to generate a dealer-specific URL
+                if variant_dealer in DEALER_SEARCH_URLS:
+                    # Determine which identifier to use (VIN for Audi stores, stock for others)
+                    identifier = variant_item.get("VIN") if variant_dealer in VIN_BASED_DEALERS and variant_item.get("VIN") else variant_item.get("Stock")
+                    if identifier:
+                        vehicle_url = generate_search_url(variant_dealer, identifier)
+                        if vehicle_url:
+                            id_type = "VIN" if variant_dealer in VIN_BASED_DEALERS else "Stock"
+                            logging.debug(f"Generated URL for variant dealer {variant_dealer}, {id_type}: {identifier}, URL: {vehicle_url}")
+                            variant_item["VDP_URL_1"] = vehicle_url
+                
+                variant_items.append(variant_item)
+            
+            # Add variant items to the combined list separately from primary items
+            all_items.extend(variant_items)
+            
+            # Save variant items to dealer-specific list
+            dealer_items[variant_dealer] = variant_items
+            
+            # Save this variant dealer's items to a separate JSON file
+            save_processed_items(variant_dealer, variant_items)
+            
+            # Apply filtering to this variant's items and add to combined list
+            filtered_variant_items = filter_inventory_items(variant_items, stock_numbers, MIN_VEHICLES_COUNT, MAX_PRICE, MIN_PRICE,
+                                                           apply_production_filters, strict_production_mode, exclude_numbers)
+            all_filtered_items.extend(filtered_variant_items)
+            logging.info(f"Variant dealer {variant_dealer}: {len(filtered_variant_items)} filtered vehicles")
+            
+            # IMPORTANT: Only do individual collection updates if they have DIFFERENT collection IDs
+            # If they share the same collection, we'll do a combined update at the end
+            if variant_collection_id and variant_api_key and variant_collection_id != collection_id:
+                # Different collection - safe to update individually
+                update_customerio_collection(variant_collection_id, variant_api_key, filtered_variant_items)
+                logging.info(f"Updated separate collection {variant_collection_id} for variant dealer {variant_dealer} with {len(filtered_variant_items)} items")
+            else:
+                logging.info(f"Skipping individual update for {variant_dealer} - will be included in combined update")
+            
+            logging.info(f"Saved {len(variant_items)} items for variant dealer {variant_dealer}")
+        
+        # Use the pre-filtered combined items from all dealers sharing this workspace
+        # This ensures we get exactly 12 from each dealer (e.g., 24 total for Audi+VW)
+        logging.info(f"Combined inventory: {len(all_filtered_items)} total vehicles from all dealers")
+        
+        # Save a combined file with all filtered items
+        combined_name = f"Combined_{inventory_file.replace('U', '')}"
+        save_processed_items(combined_name, all_filtered_items)
+        
+        # Update the Customer.io collection with ALL filtered items (primary + variants)
+        # This single update contains vehicles from all dealers in the shared workspace
+        update_customerio_collection(collection_id, apiKey, all_filtered_items)
+        logging.info(f"Updated shared collection {collection_id} with {len(all_filtered_items)} items from all dealers (should be {len(variant_dealers) + 1} x 12)")
+        
+        return processed_items
+    except Exception as e:
+        logging.error(f"Error processing inventory file {inventory_file} for {dealer_name}: {str(e)}")
+        return None
+
+def generate_search_url(dealer_name, identifier, use_vin=None):
+    """
+    Generate a search URL using either stock number or VIN for a specific dealer.
+
+    Args:
+        dealer_name: Name of the dealer
+        identifier: Either stock number or VIN depending on dealer
+        use_vin: If specified, override the default behavior. Otherwise, check VIN_BASED_DEALERS
+    """
+    if dealer_name in DEALER_SEARCH_URLS and identifier:
+        # Determine if we should use VIN (unless explicitly specified)
+        if use_vin is None:
+            use_vin = dealer_name in VIN_BASED_DEALERS
+
+        # URL encode the identifier just in case
+        safe_identifier = identifier.replace(' ', '%20')
+        base_url = DEALER_SEARCH_URLS[dealer_name]
+
+        # Return the complete search URL
+        return f"{base_url}{safe_identifier}"
+
+    return None
+
+def get_field_value(row, field_map, possible_field_names):
+    """Helper function to get a field value from multiple possible field names"""
+    for field_name in possible_field_names:
+        if field_name in field_map and field_map[field_name] < len(row):
+            return row[field_map[field_name]].strip()
+    return ""
+
+def save_processed_items_csv(dealer_name, items):
+    """Save the processed items to a CSV file for reference"""
+    if not items:
+        logging.info(f"No items to save for {dealer_name}")
+        return
+        
+    csv_dir = "csv_payloads"
+    os.makedirs(csv_dir, exist_ok=True)
+    csv_filename = f"{csv_dir}/{dealer_name.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    
+    # Get all field names from the first item
+    if items:
+        fieldnames = list(items[0].keys())
+        
+        with open(csv_filename, 'w', newline='', encoding='utf-8') as csv_file:
+            writer = csv.DictWriter(csv_file, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(items)
+        
+        logging.info(f"Saved {len(items)} items to {csv_filename}")
+
+def save_processed_items(dealer_name, items):
+    """Save the processed items to both JSON and CSV files for reference"""
+    if not items:
+        logging.info(f"No items to save for {dealer_name}")
+        return
+        
+    # Save JSON file
+    json_dir = "json_payloads"
+    os.makedirs(json_dir, exist_ok=True)
+    json_filename = f"{json_dir}/{dealer_name.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    
+    with open(json_filename, 'w', encoding='utf-8') as json_file:
+        json.dump(items, json_file, indent=2)
+    
+    logging.info(f"Saved {len(items)} items to {json_filename}")
+    
+    # Save CSV file
+    save_processed_items_csv(dealer_name, items)
+
+def update_customerio_collection(collection_id, api_key, items):
+    """Update Customer.io collection with inventory items."""
+    try:
+        # Check if credentials are valid
+        if not collection_id:
+            logging.error(f"Cannot update collection: missing collection ID")
+            return False
+            
+        if not api_key:
+            logging.error(f"Cannot update collection {collection_id}: missing API key")
+            return False
+            
+        if not items:
+            logging.warning(f"No items to update for collection {collection_id}")
+            return True
+            
+        # Format Customer.io API endpoint URL
+        url = f"{CUSTOMERIO_API_URL}/{collection_id}"
+        
+        # Set headers with API key for authentication
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}"
+        }
+        
+        # Prepare payload
+        payload = {
+            "data": items
+        }
+        
+        # Use requests.put with the json parameter directly
+        # This avoids the double-encoding problem that can occur with json.dumps
+        response = requests.put(url, headers=headers, json=payload)
+        
+        # Check response status
+        if response.status_code == 200:
+            logging.info(f"Successfully updated collection {collection_id} with {len(items)} items")
+            return True
+        else:
+            logging.error(f"Failed to update collection {collection_id}: {response.status_code} - {response.text}")
+            return False
+    except Exception as e:
+        logging.error(f"Error updating Customer.io collection {collection_id}: {str(e)}")
+        return False
+
+def main():
+    """Main function to run the script"""
+    try:
+        logging.info("Starting inventory sync process")
+        
+        # Verify essential environment variables are set
+        missing_vars = []
+        if not os.getenv('CUSTOMERIO_API_KEY') or os.getenv('CUSTOMERIO_API_KEY') == 'your_customerio_api_key':
+            missing_vars.append('CUSTOMERIO_API_KEY')
+        if not os.getenv('FTP_HOST'):
+            missing_vars.append('FTP_HOST')
+        if not os.getenv('FTP_USER'):
+            missing_vars.append('FTP_USER')
+        if not os.getenv('FTP_PASS'):
+            missing_vars.append('FTP_PASS')
+            
+        if missing_vars:
+            logging.error(f"Missing or invalid environment variables: {', '.join(missing_vars)}")
+            logging.error("Please update your .env file with valid values")
+            return False
+            
+        # Verify at least some dealer credentials are loaded
+        dealer_env_vars = [key for key in os.environ.keys() if key.startswith('DEALER_') and key.endswith('_API_KEY')]
+        if not dealer_env_vars:
+            logging.warning("No dealer API keys found in environment variables")
+            logging.warning("Make sure dealer credentials are properly set in your .env file")
+        else:
+            logging.info(f"Found {len(dealer_env_vars)} dealer API keys in environment variables")
+        
+        logging.info(f"Connecting to FTP server: {FTP_HOST}")
+        
+        # Log filtering configuration settings
+        logging.info(f"Configured for filtering:")
+        logging.info(f"  - Stock filter: {'Enabled' if USE_STOCK_FILTER else 'Disabled'}")
+        logging.info(f"  - Max price: ${MAX_PRICE:,}")
+        logging.info(f"  - Min vehicles: {MIN_VEHICLES_COUNT}")
+        logging.info(f"  - Production filters: {'Enabled' if USE_PRODUCTION_FILTERS else 'Disabled'}")
+        if USE_PRODUCTION_FILTERS:
+            logging.info(f"  - Production filter mode: {'Strict' if STRICT_PRODUCTION_MODE else 'Lenient'}")
+        
+        # Create output directory
+        output_dir = f"inventory_sync_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # Process inventory files
+        process_inventory_files()
+        
+        # Create a JSON report
+        report = {
+            "timestamp": datetime.now().isoformat(),
+            "ftp_host": FTP_HOST,
+            "success": True,
+            "message": "Inventory sync process completed successfully",
+            "filter_settings": {
+                "stock_filter": USE_STOCK_FILTER,
+                "max_price": MAX_PRICE,
+                "min_vehicles": MIN_VEHICLES_COUNT,
+                "production_filters": USE_PRODUCTION_FILTERS,
+                "strict_production_mode": STRICT_PRODUCTION_MODE
+            }
+        }
+        
+        # Save report to file
+        report_file = f"{output_dir}/sync_report.json"
+        with open(report_file, 'w') as f:
+            json.dump(report, f, indent=2)
+            
+        logging.info(f"Sync report saved to {report_file}")
+        return True
+        
+    except Exception as e:
+        logging.error(f"Error occurred: {str(e)}")
+        return False
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,66 @@
+/**
+* Shows a dialog for the user to select a single workspace to update.
+*/
+function showWorkspaceSelectionDialog() {
+const html = HtmlService.createHtmlOutput(`
+  <style>
+    body { font-family: Arial, sans-serif; }
+    #status { margin-top: 10px; font-weight: bold; color: #4CAF50;} 
+    #error { margin-top: 10px; font-weight: bold; color: #F44336;} 
+    .loader { display: none; margin-top: 10px; border: 4px solid #f3f3f3; border-radius: 50%; border-top: 4px solid #3498db; width: 20px; height: 20px; animation: spin 1s linear infinite; } 
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    .checkbox-group { margin: 15px 0; }
+    .checkbox-group label { display: block; margin-bottom: 5px; }
+  </style>
+  <h2>Select Workspace</h2>
+  <p>Choose a workspace and what to update.</p>
+  <div><select id="workspace-select" style="width: 100%;">${WORKSPACES_CONFIG.map(w => `<option value="${w.name}">${formatWorkspaceName(w.name)}</option>`).join('')}</select></div>
+  <div class="checkbox-group">
+    <strong style="display:block;margin:10px 0 5px 0;">Snippets:</strong>
+    <label><input type="checkbox" id="update-product-card" checked> Product Card Snippet</label>
+    <label><input type="checkbox" id="update-content" checked> Content Snippet</label>
+  </div>
+  <div class="checkbox-group" style="margin-top:15px;padding-top:15px;border-top:1px solid #ddd;">
+    <strong style="display:block;margin:0 0 5px 0;">Collection:</strong>
+    <label><input type="checkbox" id="update-collection" checked> Sales-Specs-Recs Collection</label>
+  </div>
+  <br>
+  <div>
+    <button onclick="this.disabled=true; runUpdate();">Update Selected</button> 
+    <button onclick="google.script.host.close()">Cancel</button>
+  </div>
+  <div class="loader" id="loader"></div>
+  <div id="status"></div>
+  <div id="error"></div>
+  <script>
+    function runUpdate() {
+      var select = document.getElementById('workspace-select');
+      var selectedWorkspace = select.options[select.selectedIndex].value;
+      var updateProductCard = document.getElementById('update-product-card').checked;
+      var updateContent = document.getElementById('update-content').checked;
+      var updateCollection = document.getElementById('update-collection').checked;
+      
+      if (!updateProductCard && !updateContent && !updateCollection) {
+        document.getElementById('error').innerText = 'Please select at least one item to update.';
+        document.querySelector('button').disabled = false;
+        return;
+      }
+      
+      document.getElementById('loader').style.display = 'block';
+      document.getElementById('status').innerText = '';
+      document.getElementById('error').innerText = '';
+
+      google.script.run
+        .withSuccessHandler(function(result) {
+          document.getElementById('loader').style.display = 'none';
+          document.getElementById('status').innerText = result;
+          setTimeout(function(){ google.script.host.close(); }, 3000);
+        })
+        .withFailureHandler(function(error) {
+          document.getElementById('loader').style.display = 'none';
+          document.getElementById('error').innerText = 'Error: ' + error.message;
+          document.querySelector('button').disabled = false; // Re-enable button on failure
+        })
+        .processSingleWorkspaceUpdate(selectedWorkspace, updateProductCard, updateContent, updateCollection);
+    }
+  </script>

@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(\"C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\Python39_64\\python.exe\" convert_to_markdown.py)",
+      "WebFetch(domain:www.figma.com)",
+      "Bash(powershell:*)",
+      "mcp__vincentmcleese-n-8-n-mcp__validate_node_operation",
+      "Bash(\"C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\Python39_64\\python.exe\":*)",
+      "Read(//c/Users/Michael.Sylvester/Downloads/**)",
+      "mcp__chrome-devtools__list_pages",
+      "mcp__chrome-devtools__wait_for",
+      "mcp__chrome-devtools__click",
+      "mcp__chrome-devtools__list_console_messages",
+      "mcp__n8n-mcp__n8n_get_workflow",
+      "Bash(\"C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\Python39_64\\python.exe\" \"C:\\Users\\Michael.Sylvester\\Comprehensive Ai Automation Marketing Worflow Buildout\\Pre-owned_Inventory_Sync_Workflow\\add_timestamp_to_workflow.py\")"
+    ],
+    "deny": []
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "vincentmcleese-n-8-n-mcp",
+    "chrome-devtools",
+    "n8n-mcp"
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "name": "Intent Triggers",
+  "active": false,
+  "nodes": [
+    { "parameters": { "path": "events/intent", "httpMethod": "POST", "responseMode": "onReceived" }, "id": "Webhook", "name": "Webhook", "type": "n8n-nodes-base.webhook", "typeVersion": 1, "position": [260, 200] },
+    { "parameters": { "workflowId": "Consent-Gate" }, "id": "Consent Gate", "name": "Consent Gate", "type": "n8n-nodes-base.executeWorkflow", "typeVersion": 1, "position": [480, 200] },
+    { "parameters": { "mode": "expression", "numberOutputs": 3, "output": "={{ $json.event_name === 'master_schedule_test_drive' ? 0 : ($json.event_name === 'master_see_payment_options' ? 1 : 2) }}" }, "id": "Switch", "name": "Route by Event", "type": "n8n-nodes-base.switch", "typeVersion": 3, "position": [700, 200] },
+    { "parameters": { "authentication":"oAuth2", "url":"https://crm.local/api/leads", "jsonParameters": true, "sendBody": true, "options": {"bodyContentType":"json"} }, "id":"Create Lead", "name":"Create Lead", "type":"n8n-nodes-base.httpRequest", "typeVersion": 4, "position":[940, 140] },
+    { "parameters": { "from":"={{$credentials.twilioFrom}}", "to":"={{$json.phone}}", "message":"We received your request. A specialist will contact you shortly. Reply STOP to opt out." }, "id":"SMS", "name":"Twilio SMS", "type":"n8n-nodes-base.twilio", "typeVersion": 2, "position":[940, 200] },
+    { "parameters": { "method":"POST", "url":"https://api.customer.io/v1/send/email", "sendBody": true, "contentType":"json", "specifyBody":"json", "jsonBody": "={\n  \"to\": [$json.email],\n  \"transactional_message_id\": \"YOUR_TXN_MSG_ID\",\n  \"identifiers\": { \"contact_id\": $json.contactId }\n}" }, "id":"CIO Email", "name":"Customer.io Email (HTTP)", "type":"n8n-nodes-base.httpRequest", "typeVersion":4, "position":[940, 260] },
+    { "parameters": { "resource": "database", "operation":"insert", "projectId": "YOUR_PROJECT_ID", "datasetId":"marketing", "tableId":"intent_events", "rows": "={{$items().map(i=>i.json)}}" }, "id":"BQ", "name":"BigQuery Log", "type":"n8n-nodes-base.googleBigQuery", "typeVersion":2, "position":[1200,200] }
+  ],
+  "connections": {
+    "Webhook": { "main": [[{ "node": "Consent Gate", "type": "main", "index": 0 }]] },
+    "Consent Gate": { "main": [[{ "node": "Route by Event", "type": "main", "index": 0 }]] },
+    "Route by Event": {
+      "main": [
+        [{ "node": "Create Lead", "type": "main", "index": 0 }],
+        [{ "node": "Twilio SMS", "type": "main", "index": 0 }],
+        [{ "node": "Customer.io Email (HTTP)", "type": "main", "index": 0 }]
+      ]
+    },
+    "Create Lead": { "main": [[{ "node": "BigQuery Log", "type": "main", "index": 0 }]] },
+    "Twilio SMS": { "main": [[{ "node": "BigQuery Log", "type": "main", "index": 0 }]] },
+    "Customer.io Email (HTTP)": { "main": [[{ "node": "BigQuery Log", "type": "main", "index": 0 }]] }
+  }
+}
+
+

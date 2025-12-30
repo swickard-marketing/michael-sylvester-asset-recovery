@@ -1,0 +1,23 @@
+{
+  "name": "Retention & Advocacy",
+  "active": false,
+  "nodes": [
+    { "parameters": { "triggerTimes": { "item": [{ "hour": 10, "minute": 0 }], "timezone": "America/New_York" } }, "id": "Cron", "name": "Cron", "type": "n8n-nodes-base.cron", "typeVersion": 1, "position": [260, 200] },
+    { "parameters": { "resource": "database", "operation": "executeQuery", "projectId": "YOUR_PROJECT_ID", "query": "SELECT * FROM marketing.retention_candidates WHERE eligible = TRUE" }, "id": "BQ Query", "name": "BQ Query", "type": "n8n-nodes-base.googleBigQuery", "typeVersion": 2, "position": [480, 200] },
+    { "parameters": { "batchSize": 200 }, "id": "Batches", "name": "Split in Batches", "type": "n8n-nodes-base.splitInBatches", "typeVersion": 1, "position": [700, 200] },
+    { "parameters": { "workflowId": "Consent-Gate" }, "id": "Consent", "name": "Consent Gate", "type": "n8n-nodes-base.executeWorkflow", "typeVersion": 1, "position": [920, 200] },
+    { "parameters": { "resource": "messages", "operation": "triggerCampaign", "jsonParameters": true, "additionalFieldsJson": "={\n  \"id\": \"YOUR_RETENTION_CAMPAIGN_ID\",\n  \"recipients\": [$json.email],\n  \"data\": { \"segment\": $json.segment, \"next_service_date\": $json.next_service_date }\n}" }, "id": "CIO Campaign", "name": "Customer.io Campaign", "type": "n8n-nodes-base.customerIo", "typeVersion": 2, "position": [1140, 180] },
+    { "parameters": { "from": "={{$credentials.twilioFrom}}", "to": "={{$json.phone}}", "message": "Reminder: Your service is due on {{ $json.next_service_date }}. Reply YES to confirm, STOP to opt out." }, "id": "Twilio", "name": "Twilio SMS", "type": "n8n-nodes-base.twilio", "typeVersion": 2, "position": [1140, 240] },
+    { "parameters": { "resource": "database", "operation": "insert", "projectId": "YOUR_PROJECT_ID", "datasetId": "audit", "tableId": "events", "rows": "={{ $items().map(i => ({ action: 'retention_contact', subjectId: i.json.contactId, ts: new Date().toISOString(), payloadHash: $crypto.sha256(JSON.stringify(i.json)) })) }}" }, "id": "Audit", "name": "Audit Log", "type": "n8n-nodes-base.googleBigQuery", "typeVersion": 2, "position": [1380, 210] }
+  ],
+  "connections": {
+    "Cron": { "main": [[{ "node": "BQ Query", "type": "main", "index": 0 }]] },
+    "BQ Query": { "main": [[{ "node": "Split in Batches", "type": "main", "index": 0 }]] },
+    "Split in Batches": { "main": [[{ "node": "Consent Gate", "type": "main", "index": 0 }], [{ "node": "Split in Batches", "type": "main", "index": 0 }]] },
+    "Consent Gate": { "main": [[{ "node": "Customer.io Campaign", "type": "main", "index": 0 }, { "node": "Twilio SMS", "type": "main", "index": 0 }]] },
+    "Customer.io Campaign": { "main": [[{ "node": "Audit Log", "type": "main", "index": 0 }]] },
+    "Twilio SMS": { "main": [[{ "node": "Audit Log", "type": "main", "index": 0 }]] }
+  }
+}
+
+

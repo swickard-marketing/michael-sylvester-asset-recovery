@@ -1,0 +1,523 @@
+/**
+ * Dealership Header Automation System for Google Apps Script
+ * Updates Customer.io header snippets from Google Sheets data.
+ * This script provides a UI menu in Google Sheets to update all headers at once
+ * or select a specific workspace to update.
+ */
+
+/**
+ * @typedef {Object} Workspace
+ */
+
+/** 
+ * Global configuration for all workspaces.
+ * This list is used to populate the UI and drive the update process.
+ * @type {Workspace[]} 
+ */
+const WORKSPACES_CONFIG = [
+  { name: 'ACURA_THOUSAND_OAKS', apiKey: '1fd2ddd8d2640a15a1aa8fcb62cc4433', type: 'single', dealership: 'Acura Thousand Oaks' },
+  { name: 'AUDI_OAKLAND', apiKey: '5e38a490a4cb75da215ff8e077916311', type: 'single', dealership: 'Audi Oakland' },
+  { name: 'AUDI_PALO_ALTO', apiKey: 'e7295eb15fb899b12b8de4d29ce68dd1', type: 'single', dealership: 'Audi Palo Alto' },
+  { name: 'BMW_OF_EUGENE', apiKey: '75c00432a4fb3c5f086ae2a1ef4c1872', type: 'single', dealership: 'BMW of Eugene' },
+  { name: 'BMW_OF_LYNNWOOD', apiKey: '629fb75ec206c73db80646ebf1e24a44', type: 'single', dealership: 'BMW of Lynnwood' },
+  { name: 'BMW_OF_PORTLAND', apiKey: 'd32ee445bda602b49ad1ed6dfd503f9f', type: 'single', dealership: 'BMW of Portland' },
+  { name: 'CHEVROLET_THOUSAND_OAKS', apiKey: '171cad5c1236a99a77a08ae34003672b', type: 'single', dealership: 'Chevrolet Thousand Oaks' },
+  { name: 'CROWN_TOYOTA', apiKey: 'f32f834fd0b71b763ebcda51ae77d0ae', type: 'single', dealership: 'Crown Toyota' },
+  { name: 'GRESHAM_TOYOTA', apiKey: 'cf2e4819a8f20ddddc359b0463a51d3c', type: 'single', dealership: 'Gresham Toyota' },
+  { name: 'LAND_ROVER_REDWOOD_CITY', apiKey: '235a9de44560b1c718e34e3e37b98d61', type: 'single', dealership: 'Land Rover Redwood City' },
+  { name: 'LAND_ROVER_SF', apiKey: '7508bfc5d5ac908875c802bb62435f7a', type: 'single', dealership: 'Land Rover San Francisco' },
+  { name: 'LAND_ROVER_THOUSAND_OAKS', apiKey: '777b6593ef5dfbc3780c58f40de87d35', type: 'single', dealership: 'Land Rover Thousand Oaks' },
+  { name: 'LEXUS_OF_FREMONT', apiKey: '7145206bdac834c98fe1ea754dc29d3c', type: 'single', dealership: 'Lexus of Fremont' },
+  { name: 'LEXUS_OF_THOUSAND_OAKS', apiKey: '46806ce450ff12a10dd1987bb4ca7403', type: 'single', dealership: 'Lexus of Thousand Oaks' },
+  { name: 'MB_HONOLULU', apiKey: '7641f8a8d9ec3bb2b2abea426d33e95e', type: 'single', dealership: 'Mercedes-Benz of Honolulu' },
+  { name: 'MB_MAUI', apiKey: 'a87ead97a30341a3c31af756e67b1274', type: 'single', dealership: 'Mercedes-Benz of Maui' },
+  { name: 'MERCEDES_BENZ_OF_ANCHORAGE', apiKey: '2630e6ae3e1136a5d778ae9f275fb99a', type: 'single', dealership: 'Mercedes-Benz of Anchorage' },
+  { name: 'MERCEDES_BENZ_OF_MARIN', apiKey: '15c4428085013edcf1a0194c22eff6ca', type: 'single', dealership: 'Mercedes-Benz of Marin' },
+  { name: 'MERCEDES_BENZ_OF_SEATTLE', apiKey: 'dba69f95292704439e259c36df6c57cf', type: 'single', dealership: 'Mercedes-Benz of Seattle' },
+  { name: 'MERCEDES_BENZ_OF_THOUSAND_OAKS', apiKey: '20899542d1142b2e6a0006bdccd87816', type: 'single', dealership: 'Mercedes-Benz of Thousand Oaks' },
+  { name: 'MERCEDES_BENZ_OF_WILSONVILLE', apiKey: 'b48998b68625a96754ea225332628fc1', type: 'single', dealership: 'Mercedes-Benz of Wilsonville' },
+  { name: 'MERCEDES_BENZ_OF_PALO_ALTO', apiKey: 'f6ab8bf9e704c04a96a6e48e0ed2fe87', type: 'single', dealership: 'Mercedes-Benz of Palo Alto' },
+  { name: 'PORSCHE_SEATTLE_NORTH', apiKey: '2ab0003f77ed82f935cc6152e867712a', type: 'single', dealership: 'Porsche Seattle North' },
+  { name: 'SWICKARD_GMC_PALMER', apiKey: '63aed0dbc828a5a08123b8c2577b42ed', type: 'single', dealership: 'Swickard GMC Palmer' },
+  { name: 'SWICKARD_HONDA_GLADSTONE', apiKey: 'd63203c05ac12287407cb911307f31c5', type: 'single', dealership: 'Swickard Honda Gladstone' },
+  { name: 'SWICKARD_HONDA_THOUSAND_OAKS', apiKey: 'd82652ce3729849182cb06042536119e', type: 'single', dealership: 'Swickard Honda Thousand Oaks' },
+  { name: 'SWICKARD_TOYOTA', apiKey: '7e9e5cf9c12188925ddce4f921270f90', type: 'single', dealership: 'Swickard Toyota' },
+  { name: 'TOYOTA_101', apiKey: '02ca351088bc8e9a8b664688dbf0cf6d', type: 'single', dealership: 'Toyota 101' },
+  { name: 'VOLVO_CARS_BELLEVUE', apiKey: 'c04c3f9fee56dbe240f17ea4316211ac', type: 'single', dealership: 'Volvo Cars Bellevue' },
+  { name: 'VOLVO_CARS_SEATTLE', apiKey: 'eb9e61ed54eb1c2ecb580d13cc7878c3', type: 'single', dealership: 'Volvo Cars Seattle' },
+  { name: 'VOLVO_CARS_SOUTHWEST_HOUSTON', apiKey: 'cf3d981ec2b6f96273f16f50513db495', type: 'single', dealership: 'Volvo Cars Southwest Houston' },
+  
+  // Multi-Dealership Groups
+  { name: 'AUDI_VOLKSWAGEN_BELLINGHAM', apiKey: '6c4af2e86daa1c8cf730489c4b41db2b', type: 'multi', dealerships: { 'Audi': 'Audi Bellingham', 'Volkswagen': 'Volkswagen of Bellingham' }},
+  { name: 'ANCHORAGE_GM_CADILLAC', apiKey: '4107c3fc1225eaf3434c1d9fa2cb2ad2', type: 'multi', dealerships: { 'Cadillac': 'Cadillac Anchorage', 'Chevrolet': 'Swickard Anchorage', 'Buick': 'Swickard Anchorage', 'GMC': 'Swickard Anchorage' }},
+  { name: 'THOUSAND_OAKS_GM_CADILLAC', apiKey: '06e5197f9d9a7119d4dc6cecf1bf9c22', type: 'multi', dealerships: { 'Buick': 'Buick, GMC Thousand Oaks', 'GMC': 'Buick, GMC Thousand Oaks', 'Cadillac': 'Cadillac Thousand Oaks' }},
+  { name: 'PORSCHE_AUDI_VOLKSWAGEN_ANCHORAGE', apiKey: '2ae0afa8d034d1a81bfc4b93ab95dd0b', type: 'multi', dealerships: { 'Porsche': 'Porsche Anchorage', 'Audi': 'Audi Anchorage', 'Volkswagen': 'Volkswagen of Anchorage' }}
+];
+
+// Default Swickard logo URL (consistent across all headers)
+const DEFAULT_SWICKARD_LOGO = 'https://www.mbofmarin.com/static/dealer-24032/swickard-sig.gif';
+
+/**
+* Creates the custom menu in the spreadsheet UI when it's opened.
+*/
+function onOpen() {
+SpreadsheetApp.getUi()
+  .createMenu('Header Tools')
+  .addItem('Update ALL Workspaces', 'updateAllHeaderSnippets')
+  .addItem('Update a Specific Workspace...', 'showHeaderWorkspaceSelectionDialog')
+  .addToUi();
+}
+
+/**
+* Formats the raw workspace name for display in the UI.
+* e.g., 'ACURA_THOUSAND_OAKS' becomes 'Acura Thousand Oaks'
+* @param {string} name The raw workspace name.
+* @returns {string} The formatted name.
+*/
+function formatWorkspaceName(name) {
+const specialReplacements = {
+  'SF': 'San Francisco',
+  'MB': 'Mercedes-Benz'
+};
+
+return name
+  .split('_')
+  .map(word => {
+    // Check for special replacements first
+    if (specialReplacements[word]) {
+      return specialReplacements[word];
+    }
+    // Keep other short acronyms like 'GM' in uppercase
+    if (word.length <= 3) { 
+      return word;
+    }
+    return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+  })
+  .join(' ');
+}
+
+/**
+* Returns a random rocket emoji for some fun.
+* @returns {string} An emoji.
+*/
+function getRandomRocketEmoji() {
+const rockets = ['🚀', '✨', '⭐', '💫', '🌟', '🎯', '🏆', '🎉', '🔥', '💥'];
+return rockets[Math.floor(Math.random() * rockets.length)];
+}
+
+/**
+* Shows a dialog for the user to select a single workspace to update.
+*/
+function showHeaderWorkspaceSelectionDialog() {
+const html = HtmlService.createHtmlOutput(`
+  <style>
+    body { font-family: Arial, sans-serif; }
+    #status { margin-top: 10px; font-weight: bold; color: #4CAF50;} 
+    #error { margin-top: 10px; font-weight: bold; color: #F44336;} 
+    .loader { display: none; margin-top: 10px; border: 4px solid #f3f3f3; border-radius: 50%; border-top: 4px solid #3498db; width: 20px; height: 20px; animation: spin 1s linear infinite; } 
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+  </style>
+  <h2>Select Workspace</h2>
+  <p>Choose a workspace and click "Update".</p>
+  <div><select id="workspace-select" style="width: 100%;">${WORKSPACES_CONFIG.map(w => `<option value="${w.name}">${formatWorkspaceName(w.name)}</option>`).join('')}</select></div>
+  <br>
+  <div>
+    <button onclick="this.disabled=true; runUpdate();">Update Selected</button> 
+    <button onclick="google.script.host.close()">Cancel</button>
+  </div>
+  <div class="loader" id="loader"></div>
+  <div id="status"></div>
+  <div id="error"></div>
+  <script>
+    function runUpdate() {
+      var select = document.getElementById('workspace-select');
+      var selectedWorkspace = select.options[select.selectedIndex].value;
+      document.getElementById('loader').style.display = 'block';
+      document.getElementById('status').innerText = '';
+      document.getElementById('error').innerText = '';
+
+      google.script.run
+        .withSuccessHandler(function(result) {
+          document.getElementById('loader').style.display = 'none';
+          document.getElementById('status').innerText = result;
+          setTimeout(function(){ google.script.host.close(); }, 3000);
+        })
+        .withFailureHandler(function(error) {
+          document.getElementById('loader').style.display = 'none';
+          document.getElementById('error').innerText = 'Error: ' + error.message;
+          document.querySelector('button').disabled = false; // Re-enable button on failure
+        })
+        .processSingleHeaderWorkspaceUpdate(selectedWorkspace);
+    }
+  </script>
+`).setWidth(400).setHeight(250);
+
+SpreadsheetApp.getUi().showModalDialog(html, 'Update Specific Workspace Header');
+}
+
+/**
+* Processes the update for a single workspace header, called from the selection dialog.
+* @param {string} workspaceName The name of the workspace to update.
+* @returns {string} A success or failure message.
+*/
+function processSingleHeaderWorkspaceUpdate(workspaceName) {
+const workspace = WORKSPACES_CONFIG.find(w => w.name === workspaceName);
+if (!workspace) {
+  throw new Error(`Workspace '${workspaceName}' not found.`);
+}
+
+const ss = SpreadsheetApp.getActiveSpreadsheet();
+const sheet = ss.getSheetByName("Sheet1"); // Ensure your sheet is named "Sheet1"
+const dealershipData = getHeaderSheetData(sheet);
+
+let snippetContent;
+
+try {
+  Logger.log(`Processing single workspace header: ${workspace.name}...`);
+  
+  // Generate snippet content based on workspace type
+  if (workspace.type === 'single' && workspace.dealership) {
+    const dealershipName = workspace.dealership;
+    const dealershipInfo = dealershipData[dealershipName];
+    if (!dealershipInfo) throw new Error(`Missing data in sheet for '${dealershipName}'`);
+    snippetContent = generateSingleDealershipHeader(dealershipInfo, dealershipName);
+  } else if (workspace.type === 'multi' && workspace.dealerships) {
+    Logger.log(`Found multi-dealership workspace: ${workspace.name}. Generating dynamic header.`);
+    snippetContent = generateMultiDealershipHeader(workspace.dealerships, dealershipData);
+    Logger.log(`Generated HTML for ${workspace.name}: \n${snippetContent.substring(0, 500)}...`);
+  } else {
+    throw new Error(`Workspace '${workspace.name}' has invalid type or missing required properties.`);
+  }
+
+  // API call logic
+  const url = "https://api.customer.io/v1/snippets";
+  const payload = { name: 'Header', value: snippetContent };
+  const options = {
+    method: 'put',
+    contentType: 'application/json',
+    headers: { "Authorization": "Bearer " + workspace.apiKey },
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  };
+  const response = UrlFetchApp.fetch(url, options);
+  const responseCode = response.getResponseCode();
+
+  if (responseCode >= 200 && responseCode < 300) {
+    const message = `Success! ${getRandomRocketEmoji()} Successfully updated the header for ${formatWorkspaceName(workspace.name)}.`;
+    Logger.log(`✅ ${message}`);
+    return message;
+  } else {
+    throw new Error(`API Error (${responseCode}): ${response.getContentText()}`);
+  }
+} catch (error) {
+  Logger.log(`❌ Error for ${workspace.name}: ${error.message}`);
+  throw error; // Re-throw the error so the UI failure handler catches it
+}
+}
+
+/**
+* Updates header snippets for ALL configured workspaces.
+*/
+function updateAllHeaderSnippets() {
+const ss = SpreadsheetApp.getActiveSpreadsheet();
+const sheet = ss.getSheetByName("Sheet1");
+const dealershipData = getHeaderSheetData(sheet);
+
+/** @type {{success: number, failure: number, alerts: string[]}} */
+const results = { success: 0, failure: 0, alerts: [] };
+const snippetName = 'Header';
+
+// Process each workspace from the global config
+WORKSPACES_CONFIG.forEach(workspace => {
+  try {
+    Logger.log(`Processing ${workspace.name} header...`);
+    
+    let snippetContent;
+    
+    if (workspace.type === 'single' && workspace.dealership) {
+      const dealershipName = workspace.dealership;
+      const dealershipInfo = dealershipData[dealershipName];
+      if (!dealershipInfo) throw new Error(`Missing data for ${dealershipName}`);
+      snippetContent = generateSingleDealershipHeader(dealershipInfo, dealershipName);
+    } else if (workspace.type === 'multi' && workspace.dealerships) {
+      Logger.log(`Found multi-dealership workspace: ${workspace.name}. Generating dynamic header.`);
+      snippetContent = generateMultiDealershipHeader(workspace.dealerships, dealershipData);
+      Logger.log(`Generated HTML for ${workspace.name}: \n${snippetContent.substring(0, 500)}...`);
+    } else {
+      throw new Error(`Workspace '${workspace.name}' has invalid type or missing required properties.`);
+    }
+    
+    const url = "https://api.customer.io/v1/snippets";
+    const payload = { name: snippetName, value: snippetContent };
+    const options = {
+      method: 'put',
+      contentType: 'application/json',
+      headers: { "Authorization": "Bearer " + workspace.apiKey },
+      payload: JSON.stringify(payload),
+      muteHttpExceptions: true
+    };
+    const response = UrlFetchApp.fetch(url, options);
+    const responseCode = response.getResponseCode();
+
+    if (responseCode >= 200 && responseCode < 300) {
+      results.success++;
+      Logger.log(`✅ Snippet '${snippetName}' updated for ${workspace.name}`);
+    } else {
+      throw new Error(`API Error (${responseCode}): ${response.getContentText()}`);
+    }
+  } catch (error) {
+    results.alerts.push(`Error for ${workspace.name}: ${error.message}`);
+    results.failure++;
+    Logger.log(`❌ Error for ${workspace.name}: ${error.message}`);
+  }
+});
+
+Logger.log(`Completed: ${results.success} successful, ${results.failure} failed`);
+
+let completionMessage = `Header Bulk Update Complete\n\n${results.success} successful\n${results.failure} failed`;
+if (results.alerts.length > 0) {
+  completionMessage += `\n\nAlerts:\n- ${results.alerts.join('\n- ')}`;
+}
+
+try {
+  SpreadsheetApp.getUi().alert(completionMessage);
+} catch (e) {
+  Logger.log("Could not display UI alert. Script was likely run from the editor or a trigger.");
+  Logger.log(completionMessage);
+}
+}
+
+/**
+* Generates the complete HTML content for the header snippet.
+* @param {Object} dealershipInfo The dealership data object from the spreadsheet.
+* @param {string} dealershipName The name of the dealership.
+* @returns {string} The full HTML string for the snippet.
+*/
+function generateSingleDealershipHeader(dealershipInfo, dealershipName) {
+return `<!-- ${dealershipName} Header -->
+<!--[if !mso]><!-->
+<style type="text/css">
+  @media screen and (max-width: 600px) {
+      .dealership-logo {
+          max-width: 300px !important;
+          width: 100% !important;
+      }
+      .swickard-logo {
+          max-width: 120px !important;
+          width: 100% !important;
+      }
+  }
+</style>
+<!--<![endif]-->
+
+<!-- Outer wrapper table for Outlook centering -->
+<table width="100%" border="0" cellpadding="0" cellspacing="0">
+  <tr>
+      <td align="center">
+          <!--[if (gte mso 9)|(IE)]>
+          <table width="600" align="center" cellpadding="0" cellspacing="0" border="0">
+          <tr>
+          <td>
+          <![endif]-->
+          
+          <table align="center" role="presentation" border="0" cellpadding="0" cellspacing="0" width="600" style="max-width: 600px;">
+              <tr>
+                  <td align="center" style="background-color: #000000; padding: 6px 20px;"> <!-- HEADER PADDING - Reduced top/bottom from 26px to 6px (20px reduction) -->
+                      <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
+                          <tr>
+                              <td align="left" valign="middle" width="70%" style="padding-right: 10px;">
+                                  <a href="${dealershipInfo.dealership_footer_url || '#'}" target="_blank" style="color: inherit; text-decoration: none; display: inline-block;">
+                                      <img class="dealership-logo" src="${dealershipInfo.dealership_logo_url || ''}" alt="${dealershipInfo.dealership_footer_alt || dealershipName}" title="${dealershipInfo.dealership_footer_alt || dealershipName}" width="340" height="auto" border="0" style="display: block; width: 100%; max-width: 240px; height: auto; font-family: Arial, sans-serif; font-size: 16px; color: #ffffff;">
+                                  </a>
+                              </td>
+                              <td align="right" valign="middle" width="30%" style="padding-left: 10px;">
+                                  <a href="https://www.swickard.com" target="_blank" style="color: inherit; text-decoration: none; display: inline-block;">
+                                      <img class="swickard-logo" src="${DEFAULT_SWICKARD_LOGO}" alt="Swickard" title="Swickard" width="145" height="auto" border="0" style="display: block; width: 100%; max-width: 145px; height: auto; font-family: Arial, sans-serif; font-size: 14px; color: #ffffff;">
+                                  </a>
+                              </td>
+                          </tr>
+                      </table>
+                  </td>
+              </tr>
+          </table>
+          
+          <!--[if (gte mso 9)|(IE)]>
+          </td>
+          </tr>
+          </table>
+          <![endif]-->
+      </td>
+  </tr>
+</table>`;
+}
+
+/**
+* Gets all dealership data from the target spreadsheet for headers.
+* @param {GoogleAppsScript.Spreadsheet.Sheet} sheet The sheet to get data from.
+* @returns {Object.<string, Object>} An object where keys are dealership names.
+*/
+function getHeaderSheetData(sheet) {
+const data = sheet.getDataRange().getValues();
+const headers = data[0];
+const dealershipData = {};
+
+const dealershipIndex = headers.indexOf("Dealership");
+if (dealershipIndex === -1) {
+  throw new Error("Required column 'Dealership' not found in spreadsheet");
+}
+
+for (let i = 1; i < data.length; i++) {
+  const row = data[i];
+  const dealership = row[dealershipIndex];
+  
+  if (dealership && dealership.trim()) {
+    // For headers, we only need these fields
+    dealershipData[dealership] = {
+      dealership_logo_url: getCellValue(row, headers, "dealership_logo_url"),
+      dealership_footer_url: getCellValue(row, headers, "dealership_footer_url"),
+      dealership_footer_alt: getCellValue(row, headers, "dealership_footer_alt")
+    };
+  }
+}
+
+return dealershipData;
+}
+
+/**
+* Helper to get cell value by header name safely.
+*/
+function getCellValue(row, headers, headerName) {
+const index = headers.indexOf(headerName);
+return index !== -1 ? (row[index] || "") : "";
+}
+
+/**
+* Generates the HTML for a multi-dealership header with dynamic Liquid content.
+* @param {{[key: string]: string}} dealerships An object mapping brands to dealership names.
+* @param {Object} allDealershipData All dealership data from the sheet.
+* @returns {string} The full HTML string for the multi-dealership snippet.
+*/
+function generateMultiDealershipHeader(dealerships, allDealershipData) {
+  let processedHtml = getMultiDealershipHeaderTemplate();
+
+  // Replace all placeholders with dynamic Liquid case statements
+  processedHtml = processedHtml.replace(/{{DYNAMIC_DEALERSHIP_URL}}/g, createHeaderLiquidCase('dealership_footer_url', dealerships, allDealershipData));
+  processedHtml = processedHtml.replace(/{{DYNAMIC_DEALERSHIP_LOGO}}/g, createHeaderLiquidCase('dealership_logo_url', dealerships, allDealershipData));
+  processedHtml = processedHtml.replace(/{{DYNAMIC_DEALERSHIP_ALT}}/g, createHeaderLiquidCase('dealership_footer_alt', dealerships, allDealershipData));
+  
+  return processedHtml;
+}
+
+/**
+* Creates a Liquid case statement for a specific header data field.
+* @param {string} fieldKey The key for the data field (e.g., 'dealership_logo_url').
+* @param {{[key: string]: string}} dealerships An object mapping brands to dealership names.
+* @param {Object} allDealershipData All dealership data from the sheet.
+* @returns {string} The generated Liquid case statement.
+*/
+function createHeaderLiquidCase(fieldKey, dealerships, allDealershipData) {
+  const brands = Object.keys(dealerships);
+  const defaultBrand = brands.includes('Audi') ? 'Audi' : brands[0]; // Prioritize Audi as default, else first brand
+
+  // Check Desired-Make first, then Vehicle-Make in else case for service customers
+  let cases = `{% if customer["Desired-Make"] != blank %}{% case customer["Desired-Make"] %}`;
+  brands.forEach(brand => {
+      if (brand !== defaultBrand) {
+          const dealershipName = dealerships[brand];
+          const dealershipInfo = allDealershipData[dealershipName];
+          if (dealershipInfo && dealershipInfo[fieldKey]) {
+              cases += `{% when '${brand}' %}${dealershipInfo[fieldKey]}`;
+          }
+      }
+  });
+
+  const defaultDealershipName = dealerships[defaultBrand];
+  const defaultDealershipInfo = allDealershipData[defaultDealershipName];
+  if (defaultDealershipInfo && defaultDealershipInfo[fieldKey]) {
+      cases += `{% else %}${defaultDealershipInfo[fieldKey]}{% endcase %}`;
+  } else {
+      cases += `{% else %}{% endcase %}`;
+  }
+
+  // Add else clause for Vehicle-Make
+  cases += `{% else %}{% case customer["Vehicle-Make"] %}`;
+  brands.forEach(brand => {
+      if (brand !== defaultBrand) {
+          const dealershipName = dealerships[brand];
+          const dealershipInfo = allDealershipData[dealershipName];
+          if (dealershipInfo && dealershipInfo[fieldKey]) {
+              cases += `{% when '${brand}' %}${dealershipInfo[fieldKey]}`;
+          }
+      }
+  });
+
+  if (defaultDealershipInfo && defaultDealershipInfo[fieldKey]) {
+      cases += `{% else %}${defaultDealershipInfo[fieldKey]}{% endcase %}{% endif %}`;
+  } else {
+      cases += `{% else %}{% endcase %}{% endif %}`;
+  }
+
+  return cases;
+}
+
+/**
+* Returns the HTML template for a multi-dealership header.
+* @returns {string}
+*/
+function getMultiDealershipHeaderTemplate() {
+return `<!-- Multi-Brand Header -->
+<!--[if !mso]><!-->
+<style type="text/css">
+  @media screen and (max-width: 600px) {
+      .dealership-logo {
+          max-width: 300px !important;
+          width: 100% !important;
+      }
+      .swickard-logo {
+          max-width: 120px !important;
+          width: 100% !important;
+      }
+  }
+</style>
+<!--<![endif]-->
+
+<!-- Outer wrapper table for Outlook centering -->
+<table width="100%" border="0" cellpadding="0" cellspacing="0">
+  <tr>
+      <td align="center">
+          <!--[if (gte mso 9)|(IE)]>
+          <table width="600" align="center" cellpadding="0" cellspacing="0" border="0">
+          <tr>
+          <td>
+          <![endif]-->
+          
+          <table align="center" role="presentation" border="0" cellpadding="0" cellspacing="0" width="600" style="max-width: 600px;">
+              <tr>
+                  <td align="center" style="background-color: #000000; padding: 6px 20px;"> <!-- HEADER PADDING - Reduced top/bottom from 26px to 6px (20px reduction) -->
+                      <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%">
+                          <tr>
+                              <td align="left" valign="middle" width="70%" style="padding-right: 10px;">
+                                  <a href="{{DYNAMIC_DEALERSHIP_URL}}" target="_blank" style="color: inherit; text-decoration: none; display: inline-block;">
+                                      <img class="dealership-logo" src="{{DYNAMIC_DEALERSHIP_LOGO}}" alt="{{DYNAMIC_DEALERSHIP_ALT}}" title="{{DYNAMIC_DEALERSHIP_ALT}}" width="240" height="auto" border="0" style="display: block; width: 100%; max-width: 100px; height: auto; font-family: Arial, sans-serif; font-size: 16px; color: #ffffff;">
+                                  </a>
+                              </td>
+                              <td align="right" valign="middle" width="30%" style="padding-left: 10px;">
+                                  <a href="https://www.swickard.com" target="_blank" style="color: inherit; text-decoration: none; display: inline-block;">
+                                      <img class="swickard-logo" src="${DEFAULT_SWICKARD_LOGO}" alt="Swickard" title="Swickard" width="145" height="auto" border="0" style="display: block; width: 100%; max-width: 145px; height: auto; font-family: Arial, sans-serif; font-size: 14px; color: #ffffff;">
+                                  </a>
+                              </td>
+                          </tr>
+                      </table>
+                  </td>
+              </tr>
+          </table>
+          
+          <!--[if (gte mso 9)|(IE)]>
+          </td>
+          </tr>
+          </table>
+          <![endif]-->
+      </td>
+  </tr>
+</table>`;
+}

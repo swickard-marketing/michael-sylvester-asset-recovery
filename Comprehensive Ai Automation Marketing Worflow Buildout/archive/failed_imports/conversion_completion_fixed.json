@@ -1,0 +1,534 @@
+{
+  "name": "Conversion Stage Completion - Customer.io Integration",
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "error_handler"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "path": "events/conversion",
+        "httpMethod": "POST",
+        "responseMode": "onReceived",
+        "responseData": "firstEntryJson",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "webhook-trigger",
+      "name": "Conversion Event Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [260, 300],
+      "webhookId": "conversion-events"
+    },
+    {
+      "parameters": {
+        "functionCode": "// Advanced lead scoring based on conversion data\nconst event = $input.item.json;\nlet score = 0;\nlet intent_level = 'low';\n\n// Event-based scoring\nconst eventScores = {\n  'lead_form_submitted': 40,\n  'test_drive_scheduled': 100,\n  'quote_requested': 80,\n  'financing_application': 90,\n  'trade_in_valuation': 70,\n  'brochure_downloaded': 30,\n  'contact_dealer': 85\n};\n\nscore += eventScores[event.event_name] || 20;\n\n// Behavioral scoring\nif (event.pages_viewed > 10) score += 20;\nelse if (event.pages_viewed > 5) score += 10;\n\nif (event.time_on_site > 600) score += 20; // More than 10 minutes\nelse if (event.time_on_site > 300) score += 10; // More than 5 minutes\n\nif (event.viewed_financing_options) score += 15;\nif (event.viewed_specific_vdp) score += 15;\nif (event.return_visitor) score += 10;\n\n// VDP (Vehicle Detail Page) scoring\nif (event.vdp_views > 3) score += 20;\nelse if (event.vdp_views > 0) score += 10;\n\n// Determine intent level\nif (score >= 80) intent_level = 'high';\nelse if (score >= 50) intent_level = 'medium';\n\n// Calculate frequency cap based on score\nlet frequency_cap = 'high'; // Default high frequency\nif (score >= 80) frequency_cap = 'low'; // High score = low frequency to avoid fatigue\nelse if (score >= 50) frequency_cap = 'medium';\n\nreturn [{\n  json: {\n    ...event,\n    lead_score: score,\n    intent_level: intent_level,\n    frequency_cap: frequency_cap,\n    conversion_timestamp: new Date().toISOString(),\n    journey_stage: 'conversion',\n    requires_sales_followup: score >= 70\n  }\n}];"
+      },
+      "id": "lead-scoring",
+      "name": "Advanced Lead Scoring",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "resource": "customer",
+        "operation": "upsert",
+        "id": "={{ $json.user_id }}",
+        "email": "={{ $json.email }}",
+        "additionalFields": {
+          "customAttributes": {
+            "attribute": [
+              {
+                "key": "journey_stage",
+                "value": "conversion"
+              },
+              {
+                "key": "lead_score",
+                "value": "={{ $json.lead_score }}"
+              },
+              {
+                "key": "intent_level",
+                "value": "={{ $json.intent_level }}"
+              },
+              {
+                "key": "conversion_event",
+                "value": "={{ $json.event_name }}"
+              },
+              {
+                "key": "frequency_cap",
+                "value": "={{ $json.frequency_cap }}"
+              },
+              {
+                "key": "conversion_date",
+                "value": "={{ $json.conversion_timestamp }}"
+              },
+              {
+                "key": "vdp_interest",
+                "value": "={{ $json.vehicle_id || $json.model || 'general' }}"
+              },
+              {
+                "key": "pages_viewed",
+                "value": "={{ $json.pages_viewed }}"
+              },
+              {
+                "key": "time_on_site",
+                "value": "={{ $json.time_on_site }}"
+              }
+            ]
+          }
+        }
+      },
+      "id": "customerio-profile",
+      "name": "Update Customer.io Profile",
+      "type": "n8n-nodes-base.customerIo",
+      "typeVersion": 1,
+      "position": [660, 300],
+      "credentials": {
+        "customerIoApi": {
+          "id": "2",
+          "name": "Customer.io API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "event",
+        "operation": "track",
+        "customerId": "={{ $json.user_id }}",
+        "eventName": "conversion_completed",
+        "additionalFields": {
+          "data": {
+            "dataProperty": [
+              {
+                "key": "conversion_type",
+                "value": "={{ $json.event_name }}"
+              },
+              {
+                "key": "lead_score",
+                "value": "={{ $json.lead_score }}"
+              },
+              {
+                "key": "intent_level",
+                "value": "={{ $json.intent_level }}"
+              },
+              {
+                "key": "vehicle_interest",
+                "value": "={{ $json.vehicle_id }}"
+              },
+              {
+                "key": "source_channel",
+                "value": "={{ $json.source_channel }}"
+              },
+              {
+                "key": "communication_preference",
+                "value": "={{ $json.communication_preference || 'email' }}"
+              },
+              {
+                "key": "requires_sales_followup",
+                "value": "={{ $json.requires_sales_followup }}"
+              }
+            ]
+          },
+          "timestamp": "={{ $json.conversion_timestamp }}"
+        }
+      },
+      "id": "customerio-event",
+      "name": "Track Conversion Event",
+      "type": "n8n-nodes-base.customerIo",
+      "typeVersion": 1,
+      "position": [860, 300],
+      "credentials": {
+        "customerIoApi": {
+          "id": "2",
+          "name": "Customer.io API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO `project.dataset.conversion_events` (user_id, email, event_name, lead_score, intent_level, frequency_cap, vehicle_id, pages_viewed, time_on_site, vdp_views, source_channel, communication_preference, conversion_timestamp) VALUES ('{{ $json.user_id }}', '{{ $json.email }}', '{{ $json.event_name }}', {{ $json.lead_score }}, '{{ $json.intent_level }}', '{{ $json.frequency_cap }}', '{{ $json.vehicle_id }}', {{ $json.pages_viewed }}, {{ $json.time_on_site }}, {{ $json.vdp_views || 0 }}, '{{ $json.source_channel }}', '{{ $json.communication_preference }}', '{{ $json.conversion_timestamp }}')",
+        "options": {}
+      },
+      "id": "bigquery-log",
+      "name": "Log Conversion to BigQuery",
+      "type": "n8n-nodes-base.googleBigQuery",
+      "typeVersion": 2,
+      "position": [1060, 300],
+      "credentials": {
+        "googleBigQueryOAuth2Api": {
+          "id": "1",
+          "name": "BigQuery OAuth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO `project.dataset.frequency_caps` (user_id, email, channel, frequency_cap, lead_score, last_updated) VALUES ('{{ $json.user_id }}', '{{ $json.email }}', 'retargeting', '{{ $json.frequency_cap }}', {{ $json.lead_score }}, '{{ $json.conversion_timestamp }}')",
+        "options": {}
+      },
+      "id": "frequency-cap",
+      "name": "Update Frequency Cap",
+      "type": "n8n-nodes-base.googleBigQuery",
+      "typeVersion": 2,
+      "position": [1260, 300],
+      "credentials": {
+        "googleBigQueryOAuth2Api": {
+          "id": "1",
+          "name": "BigQuery OAuth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "expression",
+        "value1": "={{ $json.intent_level }}",
+        "rules": {
+          "rules": [
+            {
+              "value2": "high",
+              "output": 0
+            },
+            {
+              "value2": "medium",
+              "output": 1
+            },
+            {
+              "value2": "low",
+              "output": 2
+            }
+          ]
+        },
+        "fallbackOutput": 2
+      },
+      "id": "segment-router",
+      "name": "Route by Intent Level",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1460, 300]
+    },
+    {
+      "parameters": {
+        "resource": "segment",
+        "operation": "add",
+        "segmentId": "high_intent_conversion",
+        "identifiers": [
+          {
+            "identifier": "id",
+            "value": "={{ $json.user_id }}"
+          }
+        ]
+      },
+      "id": "high-segment",
+      "name": "Add to High Intent Segment",
+      "type": "n8n-nodes-base.customerIo",
+      "typeVersion": 1,
+      "position": [1660, 200],
+      "credentials": {
+        "customerIoApi": {
+          "id": "2",
+          "name": "Customer.io API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "segment",
+        "operation": "add",
+        "segmentId": "medium_intent_conversion",
+        "identifiers": [
+          {
+            "identifier": "id",
+            "value": "={{ $json.user_id }}"
+          }
+        ]
+      },
+      "id": "medium-segment",
+      "name": "Add to Medium Intent Segment",
+      "type": "n8n-nodes-base.customerIo",
+      "typeVersion": 1,
+      "position": [1660, 300],
+      "credentials": {
+        "customerIoApi": {
+          "id": "2",
+          "name": "Customer.io API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "segment",
+        "operation": "add",
+        "segmentId": "low_intent_conversion",
+        "identifiers": [
+          {
+            "identifier": "id",
+            "value": "={{ $json.user_id }}"
+          }
+        ]
+      },
+      "id": "low-segment",
+      "name": "Add to Low Intent Segment",
+      "type": "n8n-nodes-base.customerIo",
+      "typeVersion": 1,
+      "position": [1660, 400],
+      "credentials": {
+        "customerIoApi": {
+          "id": "2",
+          "name": "Customer.io API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "needs-followup",
+              "leftValue": "={{ $json.requires_sales_followup }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "check-followup",
+      "name": "Check Sales Followup",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1860, 250]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "url": "https://crm.local/api/leads",
+        "method": "POST",
+        "sendBody": true,
+        "bodyParameters": {
+          "json": {
+            "lead_id": "={{ $json.user_id }}",
+            "email": "={{ $json.email }}",
+            "phone": "={{ $json.phone }}",
+            "lead_score": "={{ $json.lead_score }}",
+            "intent_level": "={{ $json.intent_level }}",
+            "vehicle_interest": "={{ $json.vehicle_id }}",
+            "conversion_event": "={{ $json.event_name }}",
+            "priority": "={{ $json.intent_level === 'high' ? 'urgent' : $json.intent_level === 'medium' ? 'normal' : 'low' }}",
+            "assigned_to": "auto",
+            "source": "website_conversion"
+          }
+        }
+      },
+      "id": "crm-create",
+      "name": "Create CRM Lead",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2060, 200],
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "6",
+          "name": "CRM API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "from": "={{ $credentials.twilioFrom }}",
+        "to": "={{ $json.phone }}",
+        "message": "Thank you for {{ $json.event_name === 'test_drive_scheduled' ? 'scheduling a test drive' : $json.event_name === 'quote_requested' ? 'requesting a quote' : 'your interest' }}! A sales specialist will contact you within 1 hour. Reply STOP to opt out."
+      },
+      "id": "twilio-notification",
+      "name": "Send Conversion SMS",
+      "type": "n8n-nodes-base.twilio",
+      "typeVersion": 2,
+      "position": [2060, 300],
+      "credentials": {
+        "twilioApi": {
+          "id": "5",
+          "name": "Twilio API"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Conversion Event Webhook": {
+      "main": [
+        [
+          {
+            "node": "Advanced Lead Scoring",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Advanced Lead Scoring": {
+      "main": [
+        [
+          {
+            "node": "Update Customer.io Profile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Customer.io Profile": {
+      "main": [
+        [
+          {
+            "node": "Track Conversion Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Track Conversion Event": {
+      "main": [
+        [
+          {
+            "node": "Log Conversion to BigQuery",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Conversion to BigQuery": {
+      "main": [
+        [
+          {
+            "node": "Update Frequency Cap",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Frequency Cap": {
+      "main": [
+        [
+          {
+            "node": "Route by Intent Level",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Intent Level": {
+      "main": [
+        [
+          {
+            "node": "Add to High Intent Segment",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Add to Medium Intent Segment",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Add to Low Intent Segment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add to High Intent Segment": {
+      "main": [
+        [
+          {
+            "node": "Check Sales Followup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add to Medium Intent Segment": {
+      "main": [
+        [
+          {
+            "node": "Check Sales Followup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Sales Followup": {
+      "main": [
+        [
+          {
+            "node": "Create CRM Lead",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Create CRM Lead": {
+      "main": [
+        [
+          {
+            "node": "Send Conversion SMS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "id": "1",
+      "name": "conversion"
+    },
+    {
+      "id": "2",
+      "name": "customer.io"
+    },
+    {
+      "id": "3",
+      "name": "lead-scoring"
+    },
+    {
+      "id": "4",
+      "name": "crm"
+    }
+  ],
+  "triggerCount": 0,
+  "updatedAt": "2025-08-07T10:00:00.000Z",
+  "versionId": "v1"
+}

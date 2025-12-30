@@ -1,0 +1,951 @@
+{
+  "name": "Complete Customer Journey Marketing Automation - Customer.io",
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "all",
+    "saveExecutionProgress": true,
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": "error_handler"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "content": "# Complete Customer Journey Workflow\n\nThis master workflow orchestrates all 5 stages of the customer journey:\n1. **Awareness** - Traffic collection & analysis\n2. **Consideration** - Nurture campaigns\n3. **Intent** - Real-time event triggers\n4. **Conversion** - Lead scoring & management\n5. **Retention/Advocacy** - Customer lifecycle management\n\n## Data Flow\n- BigQuery serves as central data warehouse\n- Customer.io manages all customer profiles & campaigns\n- JOMP provides AI-powered analysis\n- Twilio handles high-priority SMS\n- Real-time webhooks capture user events",
+        "height": 400,
+        "width": 300
+      },
+      "id": "workflow-overview",
+      "name": "Workflow Overview",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [100, 100]
+    },
+    {
+      "parameters": {
+        "triggerTimes": {
+          "item": [
+            {
+              "hour": 2,
+              "minute": 0
+            }
+          ]
+        },
+        "timezone": "America/New_York"
+      },
+      "id": "awareness-cron",
+      "name": "Awareness ETL (2AM)",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [500, 200]
+    },
+    {
+      "parameters": {
+        "triggerTimes": {
+          "item": [
+            {
+              "hour": 9,
+              "minute": 0
+            }
+          ]
+        },
+        "timezone": "America/New_York"
+      },
+      "id": "consideration-cron",
+      "name": "Consideration Nurture (9AM)",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [500, 400]
+    },
+    {
+      "parameters": {
+        "path": "events/intent",
+        "httpMethod": "POST",
+        "responseMode": "onReceived",
+        "responseData": "firstEntryJson"
+      },
+      "id": "intent-webhook",
+      "name": "Intent Events Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [500, 600],
+      "webhookId": "intent-events"
+    },
+    {
+      "parameters": {
+        "path": "events/conversion",
+        "httpMethod": "POST",
+        "responseMode": "onReceived",
+        "responseData": "firstEntryJson"
+      },
+      "id": "conversion-webhook",
+      "name": "Conversion Events Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [500, 800],
+      "webhookId": "conversion-events"
+    },
+    {
+      "parameters": {
+        "triggerTimes": {
+          "item": [
+            {
+              "hour": 10,
+              "minute": 0
+            }
+          ]
+        },
+        "timezone": "America/New_York"
+      },
+      "id": "retention-cron",
+      "name": "Retention Check (10AM)",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [500, 1000]
+    },
+    {
+      "parameters": {
+        "functionCode": "// AWARENESS STAGE - Collect traffic data from all sources\nconst sources = {\n  ga4PropertyId: 'YOUR_GA4_PROPERTY_ID',\n  gadsCustomerId: 'YOUR_GOOGLE_ADS_CUSTOMER_ID',\n  fbAdAccountId: 'YOUR_FACEBOOK_AD_ACCOUNT_ID',\n  gbpAccountId: 'YOUR_GBP_ACCOUNT_ID',\n  dateStart: $now.minus({days: 1}).toFormat('yyyy-MM-dd'),\n  dateEnd: $now.minus({days: 1}).toFormat('yyyy-MM-dd')\n};\n\nreturn [{json: sources}];"
+      },
+      "id": "awareness-prep",
+      "name": "Prepare Awareness Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [700, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "authentication": "oAuth2",
+        "url": "https://analyticsdata.googleapis.com/v1beta/properties/{{ $json.ga4PropertyId }}:runReport",
+        "sendBody": true,
+        "bodyParameters": {
+          "json": {
+            "dateRanges": [
+              {
+                "startDate": "{{ $json.dateStart }}",
+                "endDate": "{{ $json.dateEnd }}"
+              }
+            ],
+            "dimensions": [
+              {"name": "sessionDefaultChannelGroup"},
+              {"name": "sessionSource"}
+            ],
+            "metrics": [
+              {"name": "sessions"},
+              {"name": "totalUsers"},
+              {"name": "engagedSessions"}
+            ]
+          }
+        }
+      },
+      "id": "ga4-fetch",
+      "name": "Fetch GA4 Data",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [900, 200],
+      "credentials": {
+        "googleOAuth2Api": {
+          "id": "3",
+          "name": "Google OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT user_id, email, page_time_spent, viewed_financing_options, form_submitted, last_visit_date FROM `project.dataset.user_behavior` WHERE page_time_spent > 30 AND viewed_financing_options = TRUE AND form_submitted = FALSE AND last_visit_date >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 7 DAY)",
+        "options": {}
+      },
+      "id": "consideration-query",
+      "name": "Fetch Consideration Users",
+      "type": "n8n-nodes-base.googleBigQuery",
+      "typeVersion": 2,
+      "position": [700, 400],
+      "credentials": {
+        "googleBigQueryOAuth2Api": {
+          "id": "1",
+          "name": "BigQuery OAuth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// INTENT STAGE - Score intent signals\nconst intentSignals = {\n  'asc_click_to_call': 80,\n  'master_buy_click': 90,\n  'master_chat_click': 60,\n  'master_get_more_details': 40,\n  'master_schedule_test_drive': 100,\n  'master_see_payment_options': 70,\n  'master_see_vehicle_info': 50,\n  'master_text_for_price': 65,\n  'master_unlock_button_click': 55,\n  'master_value_your_trade': 75\n};\n\nconst eventName = $input.item.json.event_name;\nconst intentScore = intentSignals[eventName] || 30;\nlet intentLevel = 'low';\n\nif (intentScore >= 80) intentLevel = 'high';\nelse if (intentScore >= 60) intentLevel = 'medium';\n\nreturn [{\n  json: {\n    ...$input.item.json,\n    intent_score: intentScore,\n    intent_level: intentLevel,\n    journey_stage: 'intent',\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "intent-scoring",
+      "name": "Calculate Intent Score",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [700, 600]
+    },
+    {
+      "parameters": {
+        "functionCode": "// CONVERSION STAGE - Advanced lead scoring\nconst event = $input.item.json;\nlet score = 0;\n\nconst eventScores = {\n  'lead_form_submitted': 40,\n  'test_drive_scheduled': 100,\n  'quote_requested': 80,\n  'financing_application': 90,\n  'trade_in_valuation': 70\n};\n\nscore += eventScores[event.event_name] || 20;\n\n// Behavioral scoring\nif (event.pages_viewed > 10) score += 20;\nif (event.time_on_site > 600) score += 20;\nif (event.viewed_financing_options) score += 15;\nif (event.vdp_views > 3) score += 20;\n\nlet intent_level = 'low';\nif (score >= 80) intent_level = 'high';\nelse if (score >= 50) intent_level = 'medium';\n\nlet frequency_cap = 'high';\nif (score >= 80) frequency_cap = 'low';\nelse if (score >= 50) frequency_cap = 'medium';\n\nreturn [{\n  json: {\n    ...event,\n    lead_score: score,\n    intent_level: intent_level,\n    frequency_cap: frequency_cap,\n    journey_stage: 'conversion',\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "conversion-scoring",
+      "name": "Lead Scoring Engine",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [700, 800]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT c.user_id, c.email, c.phone, c.first_name, c.purchase_date, c.vehicle_model, c.last_service_date, c.next_service_date, c.satisfaction_score, CASE WHEN c.last_service_date < DATE_SUB(CURRENT_DATE(), INTERVAL 6 MONTH) THEN 'dormant' WHEN c.next_service_date <= DATE_ADD(CURRENT_DATE(), INTERVAL 30 DAY) THEN 'service_due' WHEN c.purchase_date <= DATE_SUB(CURRENT_DATE(), INTERVAL 36 MONTH) THEN 'lease_end' WHEN c.satisfaction_score >= 9 THEN 'advocate' WHEN c.satisfaction_score <= 6 THEN 'dissatisfied' ELSE 'active' END as customer_segment FROM `project.dataset.customers` c WHERE c.status = 'active'",
+        "options": {}
+      },
+      "id": "retention-query",
+      "name": "Fetch Retention Candidates",
+      "type": "n8n-nodes-base.googleBigQuery",
+      "typeVersion": 2,
+      "position": [700, 1000],
+      "credentials": {
+        "googleBigQueryOAuth2Api": {
+          "id": "1",
+          "name": "BigQuery OAuth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "customer",
+        "operation": "upsert",
+        "id": "={{ $json.user_id }}",
+        "email": "={{ $json.email }}",
+        "additionalFields": {
+          "customAttributes": {
+            "attribute": [
+              {
+                "key": "journey_stage",
+                "value": "={{ $json.journey_stage }}"
+              },
+              {
+                "key": "intent_score",
+                "value": "={{ $json.intent_score }}"
+              },
+              {
+                "key": "intent_level",
+                "value": "={{ $json.intent_level }}"
+              },
+              {
+                "key": "lead_score",
+                "value": "={{ $json.lead_score }}"
+              },
+              {
+                "key": "frequency_cap",
+                "value": "={{ $json.frequency_cap }}"
+              },
+              {
+                "key": "customer_segment",
+                "value": "={{ $json.customer_segment }}"
+              },
+              {
+                "key": "last_updated",
+                "value": "={{ $now.toISO() }}"
+              }
+            ]
+          }
+        }
+      },
+      "id": "customerio-upsert",
+      "name": "Update Customer.io Profile",
+      "type": "n8n-nodes-base.customerIo",
+      "typeVersion": 1,
+      "position": [1100, 600],
+      "credentials": {
+        "customerIoApi": {
+          "id": "2",
+          "name": "Customer.io API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "event",
+        "operation": "track",
+        "customerId": "={{ $json.user_id }}",
+        "eventName": "journey_stage_{{ $json.journey_stage }}",
+        "additionalFields": {
+          "data": {
+            "dataProperty": [
+              {
+                "key": "stage",
+                "value": "={{ $json.journey_stage }}"
+              },
+              {
+                "key": "intent_level",
+                "value": "={{ $json.intent_level }}"
+              },
+              {
+                "key": "score",
+                "value": "={{ $json.intent_score || $json.lead_score || 0 }}"
+              },
+              {
+                "key": "segment",
+                "value": "={{ $json.customer_segment || 'unknown' }}"
+              },
+              {
+                "key": "event_type",
+                "value": "={{ $json.event_name || 'batch_process' }}"
+              }
+            ]
+          }
+        }
+      },
+      "id": "customerio-track",
+      "name": "Track Journey Event",
+      "type": "n8n-nodes-base.customerIo",
+      "typeVersion": 1,
+      "position": [1300, 600],
+      "credentials": {
+        "customerIoApi": {
+          "id": "2",
+          "name": "Customer.io API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "expression",
+        "value1": "={{ $json.journey_stage }}",
+        "rules": {
+          "rules": [
+            {
+              "value2": "awareness",
+              "output": 0
+            },
+            {
+              "value2": "consideration",
+              "output": 1
+            },
+            {
+              "value2": "intent",
+              "output": 2
+            },
+            {
+              "value2": "conversion",
+              "output": 3
+            },
+            {
+              "value2": "retention_advocacy",
+              "output": 4
+            }
+          ]
+        },
+        "fallbackOutput": 5
+      },
+      "id": "stage-router",
+      "name": "Route by Journey Stage",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1500, 600]
+    },
+    {
+      "parameters": {
+        "resource": "segment",
+        "operation": "add",
+        "segmentId": "awareness_stage_active",
+        "identifiers": [
+          {
+            "identifier": "email",
+            "value": "analytics@swickard.com"
+          }
+        ]
+      },
+      "id": "awareness-segment",
+      "name": "Awareness Segment",
+      "type": "n8n-nodes-base.customerIo",
+      "typeVersion": 1,
+      "position": [1700, 200],
+      "credentials": {
+        "customerIoApi": {
+          "id": "2",
+          "name": "Customer.io API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "segment",
+        "operation": "add",
+        "segmentId": "{{ $json.intent_level }}_intent_consideration",
+        "identifiers": [
+          {
+            "identifier": "id",
+            "value": "={{ $json.user_id }}"
+          }
+        ]
+      },
+      "id": "consideration-segment",
+      "name": "Consideration Segment",
+      "type": "n8n-nodes-base.customerIo",
+      "typeVersion": 1,
+      "position": [1700, 400],
+      "credentials": {
+        "customerIoApi": {
+          "id": "2",
+          "name": "Customer.io API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "segment",
+        "operation": "add",
+        "segmentId": "{{ $json.intent_level }}_intent_active",
+        "identifiers": [
+          {
+            "identifier": "id",
+            "value": "={{ $json.user_id }}"
+          }
+        ]
+      },
+      "id": "intent-segment",
+      "name": "Intent Segment",
+      "type": "n8n-nodes-base.customerIo",
+      "typeVersion": 1,
+      "position": [1700, 600],
+      "credentials": {
+        "customerIoApi": {
+          "id": "2",
+          "name": "Customer.io API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "segment",
+        "operation": "add",
+        "segmentId": "{{ $json.intent_level }}_intent_conversion",
+        "identifiers": [
+          {
+            "identifier": "id",
+            "value": "={{ $json.user_id }}"
+          }
+        ]
+      },
+      "id": "conversion-segment",
+      "name": "Conversion Segment",
+      "type": "n8n-nodes-base.customerIo",
+      "typeVersion": 1,
+      "position": [1700, 800],
+      "credentials": {
+        "customerIoApi": {
+          "id": "2",
+          "name": "Customer.io API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "segment",
+        "operation": "add",
+        "segmentId": "{{ $json.customer_segment }}_customers",
+        "identifiers": [
+          {
+            "identifier": "id",
+            "value": "={{ $json.user_id }}"
+          }
+        ]
+      },
+      "id": "retention-segment",
+      "name": "Retention Segment",
+      "type": "n8n-nodes-base.customerIo",
+      "typeVersion": 1,
+      "position": [1700, 1000],
+      "credentials": {
+        "customerIoApi": {
+          "id": "2",
+          "name": "Customer.io API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "high-priority",
+              "leftValue": "={{ $json.intent_level }}",
+              "rightValue": "high",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "or"
+        }
+      },
+      "id": "priority-check",
+      "name": "Check High Priority",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1900, 600]
+    },
+    {
+      "parameters": {
+        "from": "={{ $credentials.twilioFrom }}",
+        "to": "={{ $json.phone }}",
+        "message": "{{ $json.journey_stage === 'intent' ? 'Thanks for your interest! A specialist will contact you shortly.' : $json.journey_stage === 'conversion' ? 'Thank you for your submission! We will process your request immediately.' : $json.journey_stage === 'retention_advocacy' && $json.customer_segment === 'service_due' ? 'Your service is due on ' + $json.next_service_date + '. Book now for 10% off!' : 'Thank you for being a valued customer!' }}"
+      },
+      "id": "twilio-sms",
+      "name": "Send Priority SMS",
+      "type": "n8n-nodes-base.twilio",
+      "typeVersion": 2,
+      "position": [2100, 550],
+      "credentials": {
+        "twilioApi": {
+          "id": "5",
+          "name": "Twilio API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO `project.dataset.journey_events` (user_id, email, journey_stage, intent_level, score, customer_segment, event_name, timestamp) VALUES ('{{ $json.user_id }}', '{{ $json.email }}', '{{ $json.journey_stage }}', '{{ $json.intent_level }}', {{ $json.intent_score || $json.lead_score || 0 }}, '{{ $json.customer_segment }}', '{{ $json.event_name }}', '{{ $json.timestamp || $now.toISO() }}')",
+        "options": {}
+      },
+      "id": "bigquery-log",
+      "name": "Log to BigQuery",
+      "type": "n8n-nodes-base.googleBigQuery",
+      "typeVersion": 2,
+      "position": [2100, 650],
+      "credentials": {
+        "googleBigQueryOAuth2Api": {
+          "id": "1",
+          "name": "BigQuery OAuth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// JOMP Analysis - Journey Optimization\nconst metrics = {\n  timestamp: new Date().toISOString(),\n  stage: $input.item.json.journey_stage || 'unknown',\n  total_processed: $input.all().length,\n  high_intent_count: $input.all().filter(i => i.json.intent_level === 'high').length,\n  medium_intent_count: $input.all().filter(i => i.json.intent_level === 'medium').length,\n  low_intent_count: $input.all().filter(i => i.json.intent_level === 'low').length,\n  avg_score: 0,\n  performance_indicator: 'normal'\n};\n\n// Calculate average score\nconst scores = $input.all().map(i => i.json.intent_score || i.json.lead_score || 0);\nif (scores.length > 0) {\n  metrics.avg_score = scores.reduce((a, b) => a + b, 0) / scores.length;\n}\n\n// Set performance indicator\nif (metrics.high_intent_count > metrics.total_processed * 0.3) {\n  metrics.performance_indicator = 'excellent';\n} else if (metrics.high_intent_count > metrics.total_processed * 0.15) {\n  metrics.performance_indicator = 'good';\n}\n\nreturn [{json: metrics}];"
+      },
+      "id": "jomp-analysis",
+      "name": "JOMP Analysis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2300, 600]
+    },
+    {
+      "parameters": {
+        "resource": "event",
+        "operation": "trackAnonymous",
+        "eventName": "jomp_analysis_complete",
+        "additionalFields": {
+          "data": {
+            "dataProperty": [
+              {
+                "key": "stage",
+                "value": "={{ $json.stage }}"
+              },
+              {
+                "key": "total_processed",
+                "value": "={{ $json.total_processed }}"
+              },
+              {
+                "key": "high_intent_count",
+                "value": "={{ $json.high_intent_count }}"
+              },
+              {
+                "key": "avg_score",
+                "value": "={{ $json.avg_score }}"
+              },
+              {
+                "key": "performance",
+                "value": "={{ $json.performance_indicator }}"
+              },
+              {
+                "key": "timestamp",
+                "value": "={{ $json.timestamp }}"
+              }
+            ]
+          }
+        }
+      },
+      "id": "jomp-report",
+      "name": "Send JOMP Report",
+      "type": "n8n-nodes-base.customerIo",
+      "typeVersion": 1,
+      "position": [2500, 600],
+      "credentials": {
+        "customerIoApi": {
+          "id": "2",
+          "name": "Customer.io API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "url": "https://crm.local/api/leads",
+        "method": "POST",
+        "sendBody": true,
+        "bodyParameters": {
+          "json": {
+            "lead_id": "={{ $json.user_id }}",
+            "email": "={{ $json.email }}",
+            "lead_score": "={{ $json.lead_score }}",
+            "intent_level": "={{ $json.intent_level }}",
+            "journey_stage": "={{ $json.journey_stage }}",
+            "priority": "={{ $json.intent_level === 'high' ? 'urgent' : 'normal' }}"
+          }
+        }
+      },
+      "id": "crm-sync",
+      "name": "Sync to CRM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2100, 750],
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "6",
+          "name": "CRM API"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Awareness ETL (2AM)": {
+      "main": [
+        [
+          {
+            "node": "Prepare Awareness Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Awareness Data": {
+      "main": [
+        [
+          {
+            "node": "Fetch GA4 Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch GA4 Data": {
+      "main": [
+        [
+          {
+            "node": "Update Customer.io Profile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Consideration Nurture (9AM)": {
+      "main": [
+        [
+          {
+            "node": "Fetch Consideration Users",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Consideration Users": {
+      "main": [
+        [
+          {
+            "node": "Update Customer.io Profile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Intent Events Webhook": {
+      "main": [
+        [
+          {
+            "node": "Calculate Intent Score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate Intent Score": {
+      "main": [
+        [
+          {
+            "node": "Update Customer.io Profile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Conversion Events Webhook": {
+      "main": [
+        [
+          {
+            "node": "Lead Scoring Engine",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lead Scoring Engine": {
+      "main": [
+        [
+          {
+            "node": "Update Customer.io Profile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retention Check (10AM)": {
+      "main": [
+        [
+          {
+            "node": "Fetch Retention Candidates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Retention Candidates": {
+      "main": [
+        [
+          {
+            "node": "Update Customer.io Profile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Customer.io Profile": {
+      "main": [
+        [
+          {
+            "node": "Track Journey Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Track Journey Event": {
+      "main": [
+        [
+          {
+            "node": "Route by Journey Stage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Journey Stage": {
+      "main": [
+        [
+          {
+            "node": "Awareness Segment",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Consideration Segment",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Intent Segment",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Conversion Segment",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Retention Segment",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Check High Priority",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Awareness Segment": {
+      "main": [
+        [
+          {
+            "node": "Check High Priority",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Consideration Segment": {
+      "main": [
+        [
+          {
+            "node": "Check High Priority",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Intent Segment": {
+      "main": [
+        [
+          {
+            "node": "Check High Priority",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Conversion Segment": {
+      "main": [
+        [
+          {
+            "node": "Check High Priority",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Retention Segment": {
+      "main": [
+        [
+          {
+            "node": "Check High Priority",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check High Priority": {
+      "main": [
+        [
+          {
+            "node": "Send Priority SMS",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log to BigQuery",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Priority SMS": {
+      "main": [
+        [
+          {
+            "node": "Log to BigQuery",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log to BigQuery": {
+      "main": [
+        [
+          {
+            "node": "JOMP Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "JOMP Analysis": {
+      "main": [
+        [
+          {
+            "node": "Send JOMP Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send JOMP Report": {
+      "main": [
+        [
+          {
+            "node": "Sync to CRM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "id": "1",
+      "name": "master-workflow"
+    },
+    {
+      "id": "2",
+      "name": "customer-journey"
+    },
+    {
+      "id": "3",
+      "name": "customer.io"
+    },
+    {
+      "id": "4",
+      "name": "jomp"
+    },
+    {
+      "id": "5",
+      "name": "bigquery"
+    }
+  ],
+  "triggerCount": 0,
+  "updatedAt": "2025-08-07T10:00:00.000Z",
+  "versionId": "v1"
+}

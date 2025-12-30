@@ -1,0 +1,6 @@
+# n8n runtime / OS invalid paths
+**/n8n/nul
+**/n8n/.*
+**/n8n/node_modules
+# Git submodules / worktrees copied from elsewhere
+Focus Email Customer Profiles/

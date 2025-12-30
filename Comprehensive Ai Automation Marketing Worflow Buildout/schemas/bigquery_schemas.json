@@ -1,0 +1,125 @@
+{
+  "datasets": [
+    {
+      "id": "marketing",
+      "tables": [
+        {
+          "id": "awareness_daily",
+          "schema": [
+            {"name":"source","type":"STRING"},
+            {"name":"payload","type":"JSON"},
+            {"name":"run_at","type":"TIMESTAMP"}
+          ]
+        },
+        {
+          "id": "events_raw",
+          "schema": [
+            {"name":"event_name","type":"STRING"},
+            {"name":"client_id","type":"STRING"},
+            {"name":"page","type":"STRING"},
+            {"name":"ts","type":"TIMESTAMP"},
+            {"name":"attrs","type":"JSON"}
+          ]
+        },
+        {
+          "id": "intent_events",
+          "schema": [
+            {"name":"contactId","type":"STRING"},
+            {"name":"event_name","type":"STRING"},
+            {"name":"ts","type":"TIMESTAMP"},
+            {"name":"details","type":"JSON"}
+          ]
+        },
+        {
+          "id": "conversion_events",
+          "schema": [
+            {"name":"contactId","type":"STRING"},
+            {"name":"event_name","type":"STRING"},
+            {"name":"lead_score","type":"INT64"},
+            {"name":"ts","type":"TIMESTAMP"},
+            {"name":"details","type":"JSON"}
+          ]
+        },
+        {
+          "id": "frequency_caps",
+          "schema": [
+            {"name":"contactId","type":"STRING"},
+            {"name":"channel","type":"STRING"},
+            {"name":"cap","type":"STRING"},
+            {"name":"ts","type":"TIMESTAMP"}
+          ]
+        },
+        {
+          "id": "retention_candidates",
+          "schema": [
+            {"name":"contactId","type":"STRING"},
+            {"name":"email","type":"STRING"},
+            {"name":"phone","type":"STRING"},
+            {"name":"segment","type":"STRING"},
+            {"name":"next_service_date","type":"DATE"},
+            {"name":"eligible","type":"BOOL"}
+          ]
+        },
+        {
+          "id": "consideration_segments",
+          "schema": [
+            {"name":"contactId","type":"STRING"},
+            {"name":"email","type":"STRING"},
+            {"name":"segment","type":"STRING"},
+            {"name":"eligible","type":"BOOL"},
+            {"name":"last_sent","type":"TIMESTAMP"}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "audit",
+      "tables": [
+        {
+          "id": "events",
+          "schema": [
+            {"name":"action","type":"STRING"},
+            {"name":"subjectId","type":"STRING"},
+            {"name":"ts","type":"TIMESTAMP"},
+            {"name":"payloadHash","type":"STRING"}
+          ]
+        },
+        {
+          "id": "errors",
+          "schema": [
+            {"name":"workflow","type":"STRING"},
+            {"name":"node","type":"STRING"},
+            {"name":"message","type":"STRING"},
+            {"name":"ts","type":"TIMESTAMP"}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "compliance",
+      "tables": [
+        {
+          "id": "optins",
+          "schema": [
+            {"name":"contactId","type":"STRING"},
+            {"name":"channel","type":"STRING"},
+            {"name":"allowed","type":"BOOL"},
+            {"name":"ts","type":"TIMESTAMP"}
+          ]
+        },
+        {
+          "id": "suppression",
+          "schema": [
+            {"name":"contactId","type":"STRING"},
+            {"name":"channel","type":"STRING"},
+            {"name":"reason","type":"STRING"},
+            {"name":"ts","type":"TIMESTAMP"}
+          ]
+        }
+      ]
+    }
+  ]
+}
+
+
+

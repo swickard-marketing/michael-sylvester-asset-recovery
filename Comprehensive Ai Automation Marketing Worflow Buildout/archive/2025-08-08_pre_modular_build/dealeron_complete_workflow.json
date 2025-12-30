@@ -1,0 +1,261 @@
+{
+  "name": "DealerOn Complete Integration Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "triggerTimes": {
+          "item": [
+            {
+              "hour": 6,
+              "minute": 0
+            },
+            {
+              "hour": 12,
+              "minute": 0
+            },
+            {
+              "hour": 18,
+              "minute": 0
+            }
+          ]
+        },
+        "timezone": "America/Los_Angeles"
+      },
+      "id": "trigger-main",
+      "name": "6-Hour Schedule",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// DEALERON INVENTORY SYNC MANAGER\n// Complete inventory synchronization with all dealer platforms\n\nconst config = {\n  dealerOn: {\n    apiKey: $getNodeParameter('dealerOnApiKey', 'YOUR_DEALERON_API_KEY'),\n    dealerId: $getNodeParameter('dealerId', 'YOUR_DEALER_ID'),\n    baseUrl: 'https://api.dealeron.com/v1'\n  },\n  dealerCom: {\n    ftpHost: $getNodeParameter('dealerComFtpHost', 'ftp.dealer.com'),\n    ftpUser: $getNodeParameter('dealerComFtpUser', 'YOUR_FTP_USER'),\n    ftpPass: $getNodeParameter('dealerComFtpPass', 'YOUR_FTP_PASS')\n  },\n  bigQuery: {\n    projectId: $getNodeParameter('bigQueryProject', 'your-project-id'),\n    dataset: 'marketing',\n    table: 'inventory'\n  }\n};\n\n// Main execution function\nasync function syncInventory() {\n  const results = {\n    timestamp: new Date().toISOString(),\n    dealerId: config.dealerOn.dealerId,\n    inventory: [],\n    metrics: {\n      totalVehicles: 0,\n      newArrivals: 0,\n      priceChanges: 0,\n      specialOffers: 0,\n      errors: []\n    }\n  };\n\n  try {\n    // Step 1: Fetch DealerOn Inventory\n    console.log('Fetching DealerOn inventory...');\n    const dealerOnData = await fetchDealerOnInventory();\n    results.inventory = dealerOnData;\n    results.metrics.totalVehicles = dealerOnData.length;\n    \n    // Step 2: Enrich with journey stage\n    console.log('Enriching inventory data...');\n    results.inventory = enrichInventoryData(results.inventory);\n    \n    // Step 3: Apply special pricing\n    console.log('Calculating special offers...');\n    results.inventory = calculateSpecialPricing(results.inventory);\n    \n    // Step 4: Prepare for distribution\n    console.log('Preparing for multi-channel distribution...');\n    results.inventory = prepareForDistribution(results.inventory);\n    \n  } catch (error) {\n    console.error('Inventory sync error:', error);\n    results.metrics.errors.push({\n      type: 'sync_error',\n      message: error.message,\n      timestamp: new Date().toISOString()\n    });\n  }\n  \n  return results;\n}\n\n// Fetch inventory from DealerOn API\nasync function fetchDealerOnInventory() {\n  const headers = {\n    'X-API-Key': config.dealerOn.apiKey,\n    'Content-Type': 'application/json',\n    'Accept': 'application/json'\n  };\n  \n  // Fetch all inventory pages\n  let allVehicles = [];\n  let page = 1;\n  let hasMore = true;\n  \n  while (hasMore) {\n    const url = `${config.dealerOn.baseUrl}/inventory?dealer_id=${config.dealerOn.dealerId}&page=${page}&limit=100`;\n    \n    try {\n      const response = await $request.get(url, { headers });\n      const data = JSON.parse(response);\n      \n      if (data.vehicles && data.vehicles.length > 0) {\n        const vehicles = data.vehicles.map(v => ({\n          // Core vehicle data\n          vin: v.vin,\n          stock: v.stock_number,\n          year: parseInt(v.year),\n          make: v.make,\n          model: v.model,\n          trim: v.trim,\n          body: v.body_style,\n          \n          // Pricing\n          msrp: parseFloat(v.msrp || 0),\n          price: parseFloat(v.internet_price || v.price || 0),\n          invoice: parseFloat(v.invoice_price || 0),\n          \n          // Condition & Status\n          condition: v.condition || 'used',\n          status: v.status || 'available',\n          certified: v.certified || false,\n          \n          // Inventory metrics\n          daysOnLot: parseInt(v.days_on_lot || 0),\n          photoCount: parseInt(v.photo_count || 0),\n          \n          // Features & Details\n          exteriorColor: v.exterior_color,\n          interiorColor: v.interior_color,\n          engine: v.engine,\n          transmission: v.transmission,\n          drivetrain: v.drivetrain,\n          mpgCity: parseInt(v.mpg_city || 0),\n          mpgHighway: parseInt(v.mpg_highway || 0),\n          \n          // Media\n          images: v.images || [],\n          primaryImage: v.primary_image_url,\n          \n          // DealerOn specific\n          dealerOnUrl: v.vdp_url,\n          lastUpdated: v.last_modified || new Date().toISOString(),\n          \n          // Source tracking\n          source: 'dealeron',\n          syncTimestamp: new Date().toISOString()\n        }));\n        \n        allVehicles = [...allVehicles, ...vehicles];\n        page++;\n        \n        // Check if there are more pages\n        hasMore = data.has_more || (data.total_pages && page <= data.total_pages);\n      } else {\n        hasMore = false;\n      }\n    } catch (error) {\n      console.error(`Error fetching page ${page}:`, error);\n      hasMore = false;\n    }\n  }\n  \n  return allVehicles;\n}\n\n// Enrich inventory with marketing data\nfunction enrichInventoryData(inventory) {\n  return inventory.map(vehicle => {\n    // Calculate popularity score (0-10)\n    let popularityScore = 5;\n    if (vehicle.condition === 'new') popularityScore += 2;\n    if (vehicle.certified) popularityScore += 1;\n    if (vehicle.photoCount > 20) popularityScore += 1;\n    if (vehicle.mpgHighway > 30) popularityScore += 1;\n    \n    // Determine price position\n    let pricePosition = 'standard';\n    if (vehicle.price < vehicle.msrp * 0.85) pricePosition = 'value';\n    if (vehicle.price < vehicle.msrp * 0.80) pricePosition = 'bargain';\n    if (vehicle.price > vehicle.msrp * 0.95) pricePosition = 'premium';\n    \n    // Calculate urgency level\n    let urgencyLevel = 'normal';\n    if (vehicle.daysOnLot > 60) urgencyLevel = 'high';\n    else if (vehicle.daysOnLot > 90) urgencyLevel = 'critical';\n    else if (vehicle.daysOnLot < 7) urgencyLevel = 'new_arrival';\n    \n    // Identify target audience\n    let targetAudience = [];\n    if (vehicle.mpgHighway > 35) targetAudience.push('eco_conscious');\n    if (vehicle.body === 'SUV' || vehicle.body === 'Minivan') targetAudience.push('family');\n    if (vehicle.make === 'BMW' || vehicle.make === 'Mercedes-Benz' || vehicle.make === 'Audi') targetAudience.push('luxury');\n    if (vehicle.price < 20000) targetAudience.push('budget');\n    if (vehicle.body === 'Truck') targetAudience.push('work');\n    \n    // Determine journey stage based on vehicle characteristics\n    let journeyStage = 'awareness';\n    if (urgencyLevel === 'high' || urgencyLevel === 'critical') {\n      journeyStage = 'conversion';\n    } else if (pricePosition === 'value' || pricePosition === 'bargain') {\n      journeyStage = 'intent';\n    } else if (popularityScore > 7) {\n      journeyStage = 'consideration';\n    }\n    \n    return {\n      ...vehicle,\n      popularityScore,\n      pricePosition,\n      urgencyLevel,\n      targetAudience,\n      journeyStage,\n      promotionEligible: urgencyLevel === 'high' || urgencyLevel === 'critical' || pricePosition === 'bargain'\n    };\n  });\n}\n\n// Calculate special pricing and offers\nfunction calculateSpecialPricing(inventory) {\n  const offers = {\n    aging: [\n      { days: 30, discount: 0.02, label: 'Month End Special' },\n      { days: 60, discount: 0.05, label: 'Clearance Pricing' },\n      { days: 90, discount: 0.08, label: 'Manager\\'s Special' },\n      { days: 120, discount: 0.10, label: 'Final Markdown' }\n    ],\n    volume: {\n      'Camry': 0.03,\n      'Accord': 0.03,\n      'F-150': 0.025,\n      'Silverado': 0.025,\n      'RAV4': 0.02,\n      'CR-V': 0.02\n    },\n    seasonal: {\n      'convertible': { months: [5,6,7,8], discount: 0.02 },\n      'awd': { months: [10,11,12,1], discount: 0.015 },\n      'truck': { months: [3,4,5], discount: 0.02 }\n    }\n  };\n  \n  const currentMonth = new Date().getMonth() + 1;\n  \n  return inventory.map(vehicle => {\n    let totalDiscount = 0;\n    let appliedOffers = [];\n    let specialMessages = [];\n    \n    // Apply aging discount\n    const agingOffer = offers.aging.find(o => vehicle.daysOnLot >= o.days);\n    if (agingOffer) {\n      totalDiscount += agingOffer.discount;\n      appliedOffers.push('aging');\n      specialMessages.push(agingOffer.label);\n    }\n    \n    // Apply volume discount\n    if (offers.volume[vehicle.model]) {\n      totalDiscount += offers.volume[vehicle.model];\n      appliedOffers.push('volume');\n      specialMessages.push('Volume Dealer Discount');\n    }\n    \n    // Apply seasonal discount\n    const vehicleType = vehicle.drivetrain === 'AWD' ? 'awd' : \n                       vehicle.body === 'Convertible' ? 'convertible' : \n                       vehicle.body === 'Truck' ? 'truck' : null;\n    \n    if (vehicleType && offers.seasonal[vehicleType]) {\n      const seasonal = offers.seasonal[vehicleType];\n      if (seasonal.months.includes(currentMonth)) {\n        totalDiscount += seasonal.discount;\n        appliedOffers.push('seasonal');\n        specialMessages.push('Seasonal Special');\n      }\n    }\n    \n    // Calculate final pricing\n    const specialPrice = Math.round(vehicle.price * (1 - totalDiscount));\n    const savings = vehicle.price - specialPrice;\n    \n    // Generate offer expiration\n    const expirationDays = vehicle.urgencyLevel === 'critical' ? 3 : \n                          vehicle.urgencyLevel === 'high' ? 7 : 14;\n    const offerExpires = new Date(Date.now() + expirationDays * 24 * 60 * 60 * 1000).toISOString();\n    \n    return {\n      ...vehicle,\n      hasSpecialOffer: appliedOffers.length > 0,\n      specialPrice: appliedOffers.length > 0 ? specialPrice : vehicle.price,\n      originalPrice: vehicle.price,\n      savings: appliedOffers.length > 0 ? savings : 0,\n      totalDiscount,\n      appliedOffers,\n      specialMessages,\n      offerExpires,\n      offerCode: appliedOffers.length > 0 ? `SAVE${vehicle.stock}` : null\n    };\n  });\n}\n\n// Prepare for multi-channel distribution\nfunction prepareForDistribution(inventory) {\n  return inventory.map(vehicle => {\n    // Generate marketing messages\n    const headline = generateHeadline(vehicle);\n    const description = generateDescription(vehicle);\n    const cta = generateCTA(vehicle);\n    \n    // Prepare channel-specific data\n    const channels = {\n      website: {\n        enabled: true,\n        vdpUrl: vehicle.dealerOnUrl,\n        badge: vehicle.hasSpecialOffer ? 'special' : vehicle.certified ? 'certified' : null,\n        ribbonText: vehicle.specialMessages[0] || null\n      },\n      bannerInSite: {\n        enabled: vehicle.hasSpecialOffer || vehicle.urgencyLevel !== 'normal',\n        campaignType: vehicle.urgencyLevel === 'new_arrival' ? 'new' : \n                     vehicle.hasSpecialOffer ? 'special' : 'standard',\n        priority: vehicle.urgencyLevel === 'critical' ? 1 : \n                 vehicle.urgencyLevel === 'high' ? 2 : 3\n      },\n      customerIo: {\n        enabled: vehicle.promotionEligible,\n        segmentId: `${vehicle.journeyStage}_${vehicle.pricePosition}`,\n        templateId: vehicle.hasSpecialOffer ? 'special_offer' : 'vehicle_feature'\n      },\n      social: {\n        enabled: vehicle.popularityScore > 7 || vehicle.hasSpecialOffer,\n        platforms: ['facebook', 'instagram'],\n        boost: vehicle.urgencyLevel === 'high' || vehicle.urgencyLevel === 'critical'\n      },\n      metricool: {\n        enabled: vehicle.journeyStage === 'consideration' || vehicle.journeyStage === 'intent',\n        contentType: vehicle.hasSpecialOffer ? 'promotional' : 'educational',\n        schedule: vehicle.urgencyLevel === 'critical' ? 'immediate' : 'optimized'\n      }\n    };\n    \n    return {\n      ...vehicle,\n      marketing: {\n        headline,\n        description,\n        cta,\n        hashtags: generateHashtags(vehicle),\n        keywords: generateKeywords(vehicle)\n      },\n      distribution: channels\n    };\n  });\n}\n\n// Helper function: Generate headline\nfunction generateHeadline(vehicle) {\n  if (vehicle.hasSpecialOffer) {\n    return `💰 Save $${vehicle.savings.toLocaleString()} on ${vehicle.year} ${vehicle.make} ${vehicle.model}`;\n  } else if (vehicle.urgencyLevel === 'new_arrival') {\n    return `🆕 Just Arrived: ${vehicle.year} ${vehicle.make} ${vehicle.model}`;\n  } else if (vehicle.certified) {\n    return `✓ Certified ${vehicle.year} ${vehicle.make} ${vehicle.model}`;\n  } else {\n    return `${vehicle.year} ${vehicle.make} ${vehicle.model} - ${vehicle.trim}`;\n  }\n}\n\n// Helper function: Generate description\nfunction generateDescription(vehicle) {\n  const features = [];\n  if (vehicle.mpgHighway > 30) features.push(`${vehicle.mpgHighway} MPG Highway`);\n  if (vehicle.certified) features.push('Certified Pre-Owned');\n  if (vehicle.photoCount > 20) features.push(`${vehicle.photoCount} HD Photos`);\n  \n  let desc = `This ${vehicle.exteriorColor} ${vehicle.year} ${vehicle.make} ${vehicle.model}`;\n  if (features.length > 0) {\n    desc += ` features ${features.join(', ')}.`;\n  }\n  \n  if (vehicle.hasSpecialOffer) {\n    desc += ` ${vehicle.specialMessages[0]}! Offer expires ${new Date(vehicle.offerExpires).toLocaleDateString()}.`;\n  }\n  \n  return desc;\n}\n\n// Helper function: Generate CTA\nfunction generateCTA(vehicle) {\n  const ctas = {\n    'awareness': 'View Details',\n    'consideration': 'Check Availability',\n    'intent': 'Get Your Price',\n    'conversion': 'Claim This Deal'\n  };\n  \n  if (vehicle.hasSpecialOffer) {\n    return `Save $${vehicle.savings.toLocaleString()} Today`;\n  }\n  \n  return ctas[vehicle.journeyStage] || 'Learn More';\n}\n\n// Helper function: Generate hashtags\nfunction generateHashtags(vehicle) {\n  const tags = [\n    `#${vehicle.make}${vehicle.model}`.replace(/[\\s-]/g, ''),\n    `#${vehicle.make}`.replace(/[\\s-]/g, ''),\n    '#Swickard'\n  ];\n  \n  if (vehicle.condition === 'new') tags.push('#NewCar');\n  if (vehicle.certified) tags.push('#Certified');\n  if (vehicle.hasSpecialOffer) tags.push('#SpecialOffer');\n  if (vehicle.targetAudience.includes('eco_conscious')) tags.push('#EcoFriendly');\n  if (vehicle.targetAudience.includes('luxury')) tags.push('#Luxury');\n  \n  return tags;\n}\n\n// Helper function: Generate keywords\nfunction generateKeywords(vehicle) {\n  return [\n    vehicle.year.toString(),\n    vehicle.make,\n    vehicle.model,\n    vehicle.trim,\n    vehicle.body,\n    vehicle.condition,\n    vehicle.exteriorColor,\n    `${vehicle.make} ${vehicle.model}`,\n    `${vehicle.year} ${vehicle.make}`,\n    `${vehicle.year} ${vehicle.make} ${vehicle.model}`\n  ].filter(k => k);\n}\n\n// Execute main function\nconst syncResults = await syncInventory();\n\n// Prepare output for next nodes\nconst output = syncResults.inventory.map(vehicle => ({ json: vehicle }));\n\n// Add summary as first item\noutput.unshift({\n  json: {\n    type: 'summary',\n    timestamp: syncResults.timestamp,\n    dealerId: syncResults.dealerId,\n    metrics: syncResults.metrics,\n    totalVehicles: syncResults.inventory.length,\n    specialOffers: syncResults.inventory.filter(v => v.hasSpecialOffer).length,\n    byJourneyStage: {\n      awareness: syncResults.inventory.filter(v => v.journeyStage === 'awareness').length,\n      consideration: syncResults.inventory.filter(v => v.journeyStage === 'consideration').length,\n      intent: syncResults.inventory.filter(v => v.journeyStage === 'intent').length,\n      conversion: syncResults.inventory.filter(v => v.journeyStage === 'conversion').length\n    }\n  }\n});\n\nreturn output;"
+      },
+      "id": "dealeron-sync",
+      "name": "DealerOn Inventory Sync",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// BANNERINSITE AUTOMATION ENGINE\n// Automated banner creation and distribution\n\nconst config = {\n  bannerInSite: {\n    apiKey: $getNodeParameter('bannerInSiteApiKey', 'YOUR_BANNERINSITE_KEY'),\n    dealerId: $getNodeParameter('dealerId', 'YOUR_DEALER_ID'),\n    baseUrl: 'https://api.bannerinsite.com/v1'\n  }\n};\n\n// Filter to only process vehicles, skip summary\nconst vehicles = $input.all()\n  .map(item => item.json)\n  .filter(item => item.type !== 'summary');\n\nconst results = {\n  timestamp: new Date().toISOString(),\n  campaigns: [],\n  banners: [],\n  distributions: [],\n  errors: []\n};\n\n// Process vehicles that need banner campaigns\nconst eligibleVehicles = vehicles.filter(v => \n  v.distribution.bannerInSite.enabled\n);\n\n// Group vehicles by campaign type\nconst campaignGroups = {\n  special: eligibleVehicles.filter(v => v.hasSpecialOffer),\n  new_arrival: eligibleVehicles.filter(v => v.urgencyLevel === 'new_arrival'),\n  clearance: eligibleVehicles.filter(v => v.urgencyLevel === 'high' || v.urgencyLevel === 'critical'),\n  featured: eligibleVehicles.filter(v => v.popularityScore > 8)\n};\n\n// Create campaigns for each group\nfor (const [type, vehicleGroup] of Object.entries(campaignGroups)) {\n  if (vehicleGroup.length === 0) continue;\n  \n  try {\n    // Create campaign\n    const campaign = {\n      id: `${type}_${Date.now()}`,\n      type: type,\n      dealer_id: config.bannerInSite.dealerId,\n      name: `${type.replace('_', ' ').toUpperCase()} - ${new Date().toLocaleDateString()}`,\n      vehicles: vehicleGroup.slice(0, 10), // Top 10 vehicles per campaign\n      start_date: new Date().toISOString(),\n      end_date: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),\n      status: 'active'\n    };\n    \n    // Generate banners for this campaign\n    const banners = generateBanners(campaign);\n    \n    // Distribute banners\n    const distribution = distributebanners(banners, campaign);\n    \n    results.campaigns.push(campaign);\n    results.banners.push(...banners);\n    results.distributions.push(...distribution);\n    \n  } catch (error) {\n    results.errors.push({\n      type: type,\n      error: error.message,\n      timestamp: new Date().toISOString()\n    });\n  }\n}\n\n// Generate banners for campaign\nfunction generateBanners(campaign) {\n  const banners = [];\n  const bannerSizes = [\n    { name: 'leaderboard', size: '728x90', placement: 'header' },\n    { name: 'medium_rectangle', size: '300x250', placement: 'sidebar' },\n    { name: 'mobile_banner', size: '320x50', placement: 'mobile' },\n    { name: 'wide_skyscraper', size: '160x600', placement: 'sidebar_tall' },\n    { name: 'billboard', size: '970x250', placement: 'header_large' }\n  ];\n  \n  campaign.vehicles.forEach((vehicle, index) => {\n    bannerSizes.forEach(size => {\n      const banner = {\n        id: `banner_${campaign.id}_${vehicle.vin}_${size.name}`,\n        campaign_id: campaign.id,\n        vehicle_vin: vehicle.vin,\n        size: size.size,\n        placement: size.placement,\n        priority: vehicle.distribution.bannerInSite.priority,\n        creative: {\n          headline: vehicle.marketing.headline,\n          description: vehicle.marketing.description.substring(0, 100),\n          cta: vehicle.marketing.cta,\n          price: vehicle.hasSpecialOffer ? \n            `$${vehicle.specialPrice.toLocaleString()}` : \n            `$${vehicle.price.toLocaleString()}`,\n          savings: vehicle.hasSpecialOffer ? \n            `Save $${vehicle.savings.toLocaleString()}` : null,\n          image: vehicle.primaryImage || vehicle.images[0],\n          badge: vehicle.distribution.website.badge,\n          expires: vehicle.offerExpires\n        },\n        targeting: {\n          pages: ['inventory', 'specials', 'home'],\n          devices: ['desktop', 'tablet', 'mobile'],\n          schedule: campaign.type === 'clearance' ? 'always' : 'business_hours'\n        },\n        tracking: {\n          utm_source: 'bannerinsite',\n          utm_medium: 'banner',\n          utm_campaign: campaign.id,\n          utm_content: size.name\n        }\n      };\n      \n      banners.push(banner);\n    });\n  });\n  \n  return banners;\n}\n\n// Distribute banners to channels\nfunction distributebanners(banners, campaign) {\n  const distributions = [];\n  \n  // Website distribution\n  distributions.push({\n    channel: 'website',\n    campaign_id: campaign.id,\n    banner_count: banners.length,\n    placements: [\n      { page: 'home', position: 'hero', banners: banners.filter(b => b.placement === 'header_large') },\n      { page: 'inventory', position: 'top', banners: banners.filter(b => b.placement === 'header') },\n      { page: 'vdp', position: 'sidebar', banners: banners.filter(b => b.placement === 'sidebar') },\n      { page: 'mobile', position: 'sticky', banners: banners.filter(b => b.placement === 'mobile') }\n    ],\n    status: 'active',\n    sync_url: `${config.bannerInSite.baseUrl}/sync/website/${campaign.id}`\n  });\n  \n  // Social media distribution\n  if (campaign.type === 'special' || campaign.type === 'new_arrival') {\n    distributions.push({\n      channel: 'social',\n      campaign_id: campaign.id,\n      platforms: ['facebook', 'instagram'],\n      creative_format: 'carousel',\n      vehicles: campaign.vehicles.slice(0, 5),\n      schedule: {\n        immediate: campaign.type === 'special',\n        optimized_time: !campaign.type === 'special'\n      }\n    });\n  }\n  \n  // Email distribution\n  distributions.push({\n    channel: 'email',\n    campaign_id: campaign.id,\n    template: campaign.type === 'special' ? 'special_offers' : 'featured_inventory',\n    segments: [\n      `${campaign.vehicles[0].journeyStage}_stage`,\n      `${campaign.vehicles[0].pricePosition}_shoppers`\n    ],\n    personalization: true,\n    send_time: campaign.type === 'clearance' ? 'immediate' : 'optimized'\n  });\n  \n  // Display network distribution\n  if (campaign.type === 'special' || campaign.type === 'clearance') {\n    distributions.push({\n      channel: 'display_network',\n      campaign_id: campaign.id,\n      networks: ['google_display', 'facebook_audience'],\n      budget: {\n        daily: campaign.type === 'clearance' ? 100 : 50,\n        total: campaign.type === 'clearance' ? 700 : 350\n      },\n      targeting: {\n        remarketing: true,\n        lookalike: true,\n        interests: campaign.vehicles[0].targetAudience\n      }\n    });\n  }\n  \n  return distributions;\n}\n\n// Prepare output\nconst output = [];\n\n// Add summary\noutput.push({\n  json: {\n    type: 'banner_summary',\n    timestamp: results.timestamp,\n    total_campaigns: results.campaigns.length,\n    total_banners: results.banners.length,\n    total_distributions: results.distributions.length,\n    campaigns: results.campaigns.map(c => ({\n      id: c.id,\n      type: c.type,\n      vehicle_count: c.vehicles.length,\n      status: c.status\n    })),\n    errors: results.errors\n  }\n});\n\n// Add detailed banner data\nresults.banners.forEach(banner => {\n  output.push({\n    json: {\n      type: 'banner',\n      ...banner\n    }\n  });\n});\n\n// Pass through vehicle data\nvehicles.forEach(vehicle => {\n  output.push({\n    json: {\n      ...vehicle,\n      banner_campaigns: results.campaigns\n        .filter(c => c.vehicles.some(v => v.vin === vehicle.vin))\n        .map(c => c.id)\n    }\n  });\n});\n\nreturn output;"
+      },
+      "id": "banner-automation",
+      "name": "BannerInSite Automation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "resource": "customer",
+        "operation": "upsert",
+        "id": "={{ $json.vin }}",
+        "email": "inventory@swickard.com",
+        "additionalFields": {
+          "customAttributes": {
+            "attribute": [
+              {
+                "key": "vehicle_vin",
+                "value": "={{ $json.vin }}"
+              },
+              {
+                "key": "vehicle_info",
+                "value": "={{ $json.year }} {{ $json.make }} {{ $json.model }}"
+              },
+              {
+                "key": "journey_stage",
+                "value": "={{ $json.journeyStage }}"
+              },
+              {
+                "key": "special_offer",
+                "value": "={{ $json.hasSpecialOffer }}"
+              },
+              {
+                "key": "price",
+                "value": "={{ $json.specialPrice || $json.price }}"
+              },
+              {
+                "key": "urgency_level",
+                "value": "={{ $json.urgencyLevel }}"
+              }
+            ]
+          }
+        }
+      },
+      "id": "customerio-update",
+      "name": "Update Customer.io",
+      "type": "n8n-nodes-base.customerIo",
+      "typeVersion": 1,
+      "position": [850, 300],
+      "credentials": {
+        "customerIoApi": {
+          "id": "customerio-api",
+          "name": "Customer.io API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO `{{ $json.projectId || 'your-project' }}.marketing.dealeron_inventory` (vin, stock, year, make, model, price, special_price, journey_stage, urgency_level, has_offer, sync_timestamp) VALUES ('{{ $json.vin }}', '{{ $json.stock }}', {{ $json.year }}, '{{ $json.make }}', '{{ $json.model }}', {{ $json.price }}, {{ $json.specialPrice || $json.price }}, '{{ $json.journeyStage }}', '{{ $json.urgencyLevel }}', {{ $json.hasSpecialOffer }}, '{{ $json.syncTimestamp }}')",
+        "options": {}
+      },
+      "id": "bigquery-log",
+      "name": "Log to BigQuery",
+      "type": "n8n-nodes-base.googleBigQuery",
+      "typeVersion": 2,
+      "position": [1050, 300],
+      "credentials": {
+        "googleBigQueryOAuth2Api": {
+          "id": "bigquery-oauth",
+          "name": "BigQuery OAuth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "has-offer",
+              "leftValue": "={{ $json.hasSpecialOffer }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "or"
+        }
+      },
+      "id": "offer-filter",
+      "name": "Filter Special Offers",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2,
+      "position": [1250, 250]
+    },
+    {
+      "parameters": {
+        "from": "={{ $credentials.twilioFrom }}",
+        "to": "+1{{ $json.dealerPhone || '5555551234' }}",
+        "message": "🚨 New Special Offers Created: {{ $items().length }} vehicles with discounts. Highest savings: ${{ Math.max(...$items().map(item => item.json.savings)) }}. Review at dealer portal."
+      },
+      "id": "sms-alert",
+      "name": "SMS Alert",
+      "type": "n8n-nodes-base.twilio",
+      "typeVersion": 2,
+      "position": [1450, 250],
+      "credentials": {
+        "twilioApi": {
+          "id": "twilio-api",
+          "name": "Twilio API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## DealerOn Integration Workflow\n\n### Features:\n1. **Inventory Sync** - Fetches all vehicles from DealerOn API\n2. **Smart Pricing** - Calculates special offers based on aging, volume, and seasonality\n3. **Journey Mapping** - Assigns vehicles to customer journey stages\n4. **Banner Automation** - Creates and distributes banners via BannerInSite\n5. **Multi-Channel Distribution** - Updates Customer.io, BigQuery, and sends alerts\n\n### Configuration Required:\n- DealerOn API Key\n- BannerInSite API Key\n- Customer.io Credentials\n- BigQuery Project ID\n- Twilio Credentials (optional)\n\n### Schedule:\nRuns 3x daily at 6AM, 12PM, and 6PM PST",
+        "height": 400,
+        "width": 300
+      },
+      "id": "documentation",
+      "name": "Workflow Documentation",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [100, 100]
+    }
+  ],
+  "connections": {
+    "6-Hour Schedule": {
+      "main": [
+        [
+          {
+            "node": "DealerOn Inventory Sync",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "DealerOn Inventory Sync": {
+      "main": [
+        [
+          {
+            "node": "BannerInSite Automation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BannerInSite Automation": {
+      "main": [
+        [
+          {
+            "node": "Update Customer.io",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Customer.io": {
+      "main": [
+        [
+          {
+            "node": "Log to BigQuery",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log to BigQuery": {
+      "main": [
+        [
+          {
+            "node": "Filter Special Offers",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Special Offers": {
+      "main": [
+        [
+          {
+            "node": "SMS Alert",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "v1",
+  "id": "dealeron-workflow",
+  "tags": [
+    {
+      "name": "dealeron"
+    },
+    {
+      "name": "inventory"
+    },
+    {
+      "name": "bannerinsite"
+    }
+  ]
+}

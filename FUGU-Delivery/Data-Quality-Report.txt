@@ -1,0 +1,221 @@
+SWICKARD AUTO GROUP - FUGU DELIVERY
+DATA QUALITY REPORT
+Generated: 2025-11-26T00:04:27.785Z
+
+======================================================================
+OVERALL STATISTICS
+======================================================================
+Total Contacts: 21,285
+Valid Emails: 21,285 (100.0%)
+Valid Phones: 21,097 (99.1%)
+Match Rate (Email+Phone): 21,097 (99.1%)
+
+======================================================================
+DEALERSHIP BREAKDOWN
+======================================================================
+
+Acura Thousand Oaks
+  Original Total: 3,757 (limited to 645)
+  Valid Emails: 645 (100.0%)
+  Valid Phones: 645 (100.0%)
+  Match Rate: 645 (100.0%)
+
+Audi Oakland
+  Original Total: 5,236 (limited to 645)
+  Valid Emails: 645 (100.0%)
+  Valid Phones: 645 (100.0%)
+  Match Rate: 645 (100.0%)
+
+Audi Palo Alto
+  Original Total: 6,157 (limited to 645)
+  Valid Emails: 645 (100.0%)
+  Valid Phones: 645 (100.0%)
+  Match Rate: 645 (100.0%)
+
+Audi Volkswagen Bellingham
+  Original Total: 1,693 (limited to 645)
+  Valid Emails: 645 (100.0%)
+  Valid Phones: 645 (100.0%)
+  Match Rate: 645 (100.0%)
+
+BMW Of Eugene
+  Original Total: 3,891 (limited to 645)
+  Valid Emails: 645 (100.0%)
+  Valid Phones: 645 (100.0%)
+  Match Rate: 645 (100.0%)
+
+BMW Of Lynnwood
+  Original Total: 4,008 (limited to 645)
+  Valid Emails: 645 (100.0%)
+  Valid Phones: 645 (100.0%)
+  Match Rate: 645 (100.0%)
+
+BMW Of Portland
+  Original Total: 2,012 (limited to 645)
+  Valid Emails: 645 (100.0%)
+  Valid Phones: 645 (100.0%)
+  Match Rate: 645 (100.0%)
+
+Chevy Thousand Oaks
+  Original Total: 5,136 (limited to 645)
+  Valid Emails: 645 (100.0%)
+  Valid Phones: 645 (100.0%)
+  Match Rate: 645 (100.0%)
+
+Crown Toyota
+  Original Total: 33,357 (limited to 645)
+  Valid Emails: 645 (100.0%)
+  Valid Phones: 645 (100.0%)
+  Match Rate: 645 (100.0%)
+
+Jaguar Land Rover San Francisco
+  Original Total: 1,261 (limited to 645)
+  Valid Emails: 645 (100.0%)
+  Valid Phones: 645 (100.0%)
+  Match Rate: 645 (100.0%)
+
+Land Rover Redwood City
+  Original Total: 2,783 (limited to 645)
+  Valid Emails: 645 (100.0%)
+  Valid Phones: 645 (100.0%)
+  Match Rate: 645 (100.0%)
+
+Lexus Of Fremont
+  Original Total: 12,282 (limited to 645)
+  Valid Emails: 645 (100.0%)
+  Valid Phones: 645 (100.0%)
+  Match Rate: 645 (100.0%)
+
+Lexus Of Thousand Oaks
+  Original Total: 8,206 (limited to 645)
+  Valid Emails: 645 (100.0%)
+  Valid Phones: 645 (100.0%)
+  Match Rate: 645 (100.0%)
+
+Mercedes-Benz Honolulu
+  Original Total: 4,680 (limited to 645)
+  Valid Emails: 645 (100.0%)
+  Valid Phones: 645 (100.0%)
+  Match Rate: 645 (100.0%)
+
+Mercedes-Benz Maui
+  Original Total: 1,109 (limited to 645)
+  Valid Emails: 645 (100.0%)
+  Valid Phones: 645 (100.0%)
+  Match Rate: 645 (100.0%)
+
+Mercedes Benz Of Anchorage
+  Original Total: 1,729 (limited to 645)
+  Valid Emails: 645 (100.0%)
+  Valid Phones: 645 (100.0%)
+  Match Rate: 645 (100.0%)
+
+Mercedes Benz Of Seattle
+  Original Total: 10,741 (limited to 645)
+  Valid Emails: 645 (100.0%)
+  Valid Phones: 645 (100.0%)
+  Match Rate: 645 (100.0%)
+
+Mercedes Benz Of Thousand Oaks
+  Original Total: 6,922 (limited to 645)
+  Valid Emails: 645 (100.0%)
+  Valid Phones: 645 (100.0%)
+  Match Rate: 645 (100.0%)
+
+Mercedes Benz Of Wilsonville
+  Original Total: 8,967 (limited to 645)
+  Valid Emails: 645 (100.0%)
+  Valid Phones: 645 (100.0%)
+  Match Rate: 645 (100.0%)
+
+Porche Audi Volkswagen Anchorage
+  Original Total: 8,139 (limited to 645)
+  Valid Emails: 645 (100.0%)
+  Valid Phones: 645 (100.0%)
+  Match Rate: 645 (100.0%)
+
+Swickard Anchorage
+  Original Total: 4,529 (limited to 645)
+  Valid Emails: 645 (100.0%)
+  Valid Phones: 645 (100.0%)
+  Match Rate: 645 (100.0%)
+
+Swickard GMC Buick
+  Original Total: 5,533 (limited to 645)
+  Valid Emails: 645 (100.0%)
+  Valid Phones: 645 (100.0%)
+  Match Rate: 645 (100.0%)
+
+Swickard GMC Palmer
+  Original Total: 5,282 (limited to 645)
+  Valid Emails: 645 (100.0%)
+  Valid Phones: 645 (100.0%)
+  Match Rate: 645 (100.0%)
+
+Swickard Honda Gladstone
+  Original Total: 5,223 (limited to 645)
+  Valid Emails: 645 (100.0%)
+  Valid Phones: 645 (100.0%)
+  Match Rate: 645 (100.0%)
+
+Swickard Honda Thousand Oaks
+  Original Total: 8,797 (limited to 645)
+  Valid Emails: 645 (100.0%)
+  Valid Phones: 645 (100.0%)
+  Match Rate: 645 (100.0%)
+
+Swickard Toyota 101
+  Original Total: 5,746 (limited to 645)
+  Valid Emails: 645 (100.0%)
+  Valid Phones: 645 (100.0%)
+  Match Rate: 645 (100.0%)
+
+Swickard Toyota
+  Original Total: 15,956 (limited to 645)
+  Valid Emails: 645 (100.0%)
+  Valid Phones: 645 (100.0%)
+  Match Rate: 645 (100.0%)
+
+Volvo Cars Bellevue
+  Original Total: 6,169 (limited to 645)
+  Valid Emails: 645 (100.0%)
+  Valid Phones: 645 (100.0%)
+  Match Rate: 645 (100.0%)
+
+Volvo Cars Seattle
+  Original Total: 1,890 (limited to 645)
+  Valid Emails: 645 (100.0%)
+  Valid Phones: 645 (100.0%)
+  Match Rate: 645 (100.0%)
+
+Gresham Toyota
+  Original Total: 7,794 (limited to 645)
+  Valid Emails: 645 (100.0%)
+  Valid Phones: 644 (99.8%)
+  Match Rate: 644 (99.8%)
+
+Land Rover Thousand Oaks
+  Original Total: 3,487 (limited to 645)
+  Valid Emails: 645 (100.0%)
+  Valid Phones: 644 (99.8%)
+  Match Rate: 644 (99.8%)
+
+Mercedes Benz Of Marin
+  Original Total: 5,660 (limited to 645)
+  Valid Emails: 645 (100.0%)
+  Valid Phones: 644 (99.8%)
+  Match Rate: 644 (99.8%)
+
+Porsche Seattle North
+  Original Total: 2,403 (limited to 645)
+  Valid Emails: 645 (100.0%)
+  Valid Phones: 460 (71.3%)
+  Match Rate: 460 (71.3%)
+
+======================================================================
+DATA STANDARDIZATION APPLIED
+======================================================================
+- Phone numbers: Digits only, 10 characters (e.g., 5038731291)
+- Email addresses: Lowercase, validated format
+- Names: Trimmed whitespace, normalized spacing
+- Invalid data: Set to empty string

@@ -1,0 +1,575 @@
+{
+  "name": "Vehicle Inquiry Agent - AI Powered SMS (Native Agent)",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 🚀 VEHICLE INQUIRY AI AGENT\n\n**AI-Powered SMS Conversations for Vehicle Sales**\n\n### What This Does:\n- Customer clicks \"Unlock Price\" → Opts in for SMS\n- AI agent (Claude) has intelligent conversations\n- Automatically qualifies leads\n- Forwards hot leads to sales team\n\n### Technologies:\n- **Twilio**: SMS messaging\n- **Anthropic Claude 3.5 Sonnet**: AI agent\n- **n8n Native AI Agents**: Conversation management\n\n### Two Main Flows:\n🔵 **FLOW 1**: Widget → Initial SMS\n🟢 **FLOW 2**: SMS Conversation Loop (AI Agent)\n\n---\n\n### Setup Required:\n✓ Twilio account + SMS number\n✓ Anthropic API key  \n✓ n8n credentials configured\n✓ Website widget installed",
+        "height": 480,
+        "width": 540
+      },
+      "id": "sticky-header",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [140, 40]
+    },
+    {
+      "parameters": {
+        "content": "## 🔵 FLOW 1: WIDGET → INITIAL SMS\n\n**Trigger**: Customer opts in on website\n\n**Steps:**\n1. Webhook receives data\n2. Validate phone + vehicle ID\n3. Build AI context\n4. Send greeting SMS\n5. Return success to widget\n\n⏱️ **Time**: < 2 seconds",
+        "height": 260,
+        "width": 360
+      },
+      "id": "sticky-flow1",
+      "name": "Sticky Note1",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [140, 560],
+      "style": "background-color: #e3f2fd; border-color: #2196f3;"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "vehicle-inquiry-trigger",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "id": "webhook-widget",
+      "name": "Widget Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [260, 860],
+      "webhookId": "widget-trigger"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.body.customerPhone }}",
+              "operation": "isNotEmpty"
+            },
+            {
+              "value1": "={{ $json.body.vehicleId }}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      },
+      "id": "validate",
+      "name": "Validate Fields",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [460, 860]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"success\": false, \"error\": \"Missing required fields\" } }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "error-response",
+      "name": "Error Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [660, 1010]
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.item.json.body;\n\n// Build vehicle context\nconst vehicle = {\n  id: data.vehicleId,\n  name: `${data.vehicleYear} ${data.vehicleMake} ${data.vehicleModel}`,\n  price: data.vehiclePrice,\n  status: data.vehicleStatus || 'available',\n  dealership: data.dealershipName\n};\n\n// Customer context\nconst customer = {\n  phone: data.customerPhone,\n  name: data.customerName || 'Customer'\n};\n\n// Create conversation tracking\nconst conversationId = `conv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;\n\n// Initial greeting message\nconst greeting = `Hi ${customer.name}! Thanks for your interest in the ${vehicle.name}. I can help you with details and pricing. What would you like to know?`;\n\nreturn {\n  json: {\n    conversationId,\n    vehicle,\n    customer,\n    greeting,\n    // Store full context for later\n    fullContext: data\n  }\n};"
+      },
+      "id": "prepare-context",
+      "name": "Prepare Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, 860]
+    },
+    {
+      "parameters": {
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "twilioApi",
+        "resource": "sms",
+        "operation": "send",
+        "from": "={{ $env.TWILIO_PHONE_NUMBER }}",
+        "to": "={{ $json.customer.phone }}",
+        "message": "={{ $json.greeting }}"
+      },
+      "id": "send-initial-sms",
+      "name": "Send Initial SMS",
+      "type": "n8n-nodes-base.twilio",
+      "typeVersion": 1,
+      "position": [860, 860]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"success\": true, \"message\": \"SMS sent\", \"conversationId\": $json.conversationId } }}"
+      },
+      "id": "success-response",
+      "name": "Success Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1060, 860]
+    },
+    {
+      "parameters": {
+        "content": "## 🟢 FLOW 2: AI CONVERSATION LOOP\n\n**Trigger**: Customer replies to SMS\n\n**Powered by n8n AI Agent Node**\n\n**Steps:**\n1. Twilio webhook receives reply\n2. Parse customer message\n3. AI Agent processes with Claude\n4. Agent maintains conversation memory\n5. Reply sent via Twilio\n6. Check lead qualification\n7. Forward if qualified\n\n⏱️ **Time**: 2-5 seconds per message\n\n**AI Agent Features:**\n✓ Conversation memory\n✓ Context awareness\n✓ Natural language understanding\n✓ Lead qualification",
+        "height": 440,
+        "width": 400
+      },
+      "id": "sticky-flow2",
+      "name": "Sticky Note2",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [140, 1180],
+      "style": "background-color: #e8f5e9; border-color: #4caf50;"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "twilio-inbound-sms",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-twilio",
+      "name": "Twilio Inbound Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [260, 1520],
+      "webhookId": "twilio-inbound"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract Twilio data\nconst twilio = $input.item.json.body;\n\nreturn {\n  json: {\n    customerPhone: twilio.From,\n    customerMessage: twilio.Body,\n    twilioNumber: twilio.To,\n    messageSid: twilio.MessageSid,\n    timestamp: new Date().toISOString()\n  }\n};"
+      },
+      "id": "parse-sms",
+      "name": "Parse SMS",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 1520]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.customerMessage }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "You are a helpful vehicle sales assistant. Your role:\n\n1. Assist customers with vehicle inquiries\n2. Provide pricing and availability information\n3. Answer questions about features, financing, and trade-ins\n4. Recommend alternatives if requested vehicle unavailable\n5. Qualify leads by gathering: name, contact preference, timeline\n6. Schedule test drives and appointments when ready\n\nGuidelines:\n- Keep responses SHORT for SMS (under 160 characters when possible)\n- Be friendly, professional, and enthusiastic\n- If unsure, offer to connect with specialist\n- When customer is ready, confirm sales team will follow up\n- Don't make up information\n\nCurrent Context:\nYou are assisting with vehicle inquiries. Build rapport, answer questions, and identify qualified buyers ready for sales team contact."
+        }
+      },
+      "id": "ai-agent",
+      "name": "AI Agent (Claude)",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.6,
+      "position": [660, 1520]
+    },
+    {
+      "parameters": {
+        "model": "claude-3-5-sonnet-20241022",
+        "options": {
+          "maxTokens": 300,
+          "temperature": 0.7
+        }
+      },
+      "id": "claude-model",
+      "name": "Anthropic Claude Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1,
+      "position": [660, 1720],
+      "credentials": {
+        "anthropicApi": {
+          "id": "anthropic-api-credential",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "contextWindowLength": 10,
+        "options": {}
+      },
+      "id": "memory",
+      "name": "Conversation Memory",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.2,
+      "position": [860, 1720]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract AI response\nconst aiResponse = $input.item.json.output;\n\nreturn {\n  json: {\n    agentMessage: aiResponse,\n    customerPhone: $('Parse SMS').item.json.customerPhone,\n    customerMessage: $('Parse SMS').item.json.customerMessage,\n    twilioNumber: $('Parse SMS').item.json.twilioNumber\n  }\n};"
+      },
+      "id": "process-response",
+      "name": "Process AI Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [860, 1520]
+    },
+    {
+      "parameters": {
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "twilioApi",
+        "resource": "sms",
+        "operation": "send",
+        "from": "={{ $json.twilioNumber }}",
+        "to": "={{ $json.customerPhone }}",
+        "message": "={{ $json.agentMessage }}"
+      },
+      "id": "send-reply",
+      "name": "Send Reply SMS",
+      "type": "n8n-nodes-base.twilio",
+      "typeVersion": 1,
+      "position": [1060, 1520]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "<?xml version=\"1.0\" encoding=\"UTF-8\"?><Response></Response>",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "text/xml"
+              }
+            ]
+          }
+        }
+      },
+      "id": "twiml-response",
+      "name": "TwiML Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1260, 1520]
+    },
+    {
+      "parameters": {
+        "content": "## 🤖 AI AGENT NODE\n\n**Uses n8n Native Agent**\n\n**Benefits:**\n✓ Built-in conversation memory\n✓ Context management\n✓ Tool calling support\n✓ Easy configuration\n✓ Automatic retries\n\n**Connected Components:**\n- Claude 3.5 Sonnet model\n- Buffer window memory (10 msgs)\n- System prompt with instructions",
+        "height": 300,
+        "width": 300
+      },
+      "id": "sticky-agent",
+      "name": "Sticky Note3",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [560, 1680],
+      "style": "background-color: #f3e5f5; border-color: #9c27b0;"
+    },
+    {
+      "parameters": {
+        "content": "## 🎯 LEAD QUALIFICATION\n\n**Runs in parallel with reply**\n\n**Qualification Signals:**\n✓ \"test drive\", \"appointment\"  \n✓ \"buy\", \"financing\", \"trade-in\"\n✓ \"call me\", \"contact me\"\n✓ Provides personal info\n\n**Actions if Qualified:**\n→ Forward to CRM\n→ Send confirmation SMS\n→ Alert sales team\n\n**If Not Qualified:**\n→ Continue conversation",
+        "height": 340,
+        "width": 340
+      },
+      "id": "sticky-qualification",
+      "name": "Sticky Note4",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [980, 1820],
+      "style": "background-color: #fff9c4; border-color: #fbc02d;"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Lead qualification keywords\nconst message = $input.item.json.customerMessage.toLowerCase();\nconst agentMsg = $input.item.json.agentMessage.toLowerCase();\n\nconst qualifyKeywords = [\n  'test drive', 'appointment', 'visit', 'buy', 'purchase',\n  'financing', 'finance', 'trade-in', 'trade in',\n  'call me', 'contact me', 'interested', 'ready'\n];\n\nconst isQualified = qualifyKeywords.some(kw => \n  message.includes(kw) || agentMsg.includes(kw)\n);\n\nif (isQualified) {\n  return {\n    json: {\n      isQualified: true,\n      customerPhone: $input.item.json.customerPhone,\n      customerMessage: message,\n      agentMessage: agentMsg,\n      timestamp: new Date().toISOString(),\n      leadSource: 'vehicle_inquiry_agent_sms',\n      priority: 'high'\n    }\n  };\n} else {\n  return {\n    json: { isQualified: false }\n  };\n}"
+      },
+      "id": "check-qualification",
+      "name": "Check Lead Qualification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1060, 1720]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.isQualified }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "if-qualified",
+      "name": "Is Qualified?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1260, 1720]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.CRM_WEBHOOK_URL }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"lead_source\": \"{{ $json.leadSource }}\",\n  \"customer_phone\": \"{{ $json.customerPhone }}\",\n  \"timestamp\": \"{{ $json.timestamp }}\",\n  \"priority\": \"{{ $json.priority }}\",\n  \"customer_message\": \"{{ $json.customerMessage }}\",\n  \"agent_response\": \"{{ $json.agentMessage }}\",\n  \"status\": \"qualified\"\n}",
+        "options": {}
+      },
+      "id": "forward-crm",
+      "name": "Forward to CRM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [1460, 1670]
+    },
+    {
+      "parameters": {
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "twilioApi",
+        "resource": "sms",
+        "operation": "send",
+        "from": "={{ $env.TWILIO_PHONE_NUMBER }}",
+        "to": "={{ $json.customerPhone }}",
+        "message": "Great! I've forwarded your info to our sales team. Expect a call within the hour. Thanks for your interest!"
+      },
+      "id": "send-confirmation",
+      "name": "Send Confirmation",
+      "type": "n8n-nodes-base.twilio",
+      "typeVersion": 1,
+      "position": [1660, 1670]
+    },
+    {
+      "parameters": {
+        "content": "## 📧 CRM FORWARDING\n\n**Integration Options:**\n- Salesforce API\n- HubSpot API\n- Zoho CRM\n- Email notification\n- Slack alert\n- Custom webhook\n\n**Set environment variable:**\n`CRM_WEBHOOK_URL`\n\n**Includes:**\n- Customer phone\n- Conversation summary\n- Priority level\n- Timestamp",
+        "height": 300,
+        "width": 280
+      },
+      "id": "sticky-crm",
+      "name": "Sticky Note5",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [1540, 1440],
+      "style": "background-color: #e8eaf6; border-color: #3f51b5;"
+    },
+    {
+      "parameters": {
+        "content": "## 🔑 ENVIRONMENT VARIABLES\n\n**Required in n8n Settings:**\n\n```bash\nTWILIO_PHONE_NUMBER=+1234567890\nCRM_WEBHOOK_URL=https://your-crm.com/api\n```\n\n**n8n Credentials Needed:**\n- **Twilio API** (Account SID + Auth Token)\n- **Anthropic API** (API Key)",
+        "height": 300,
+        "width": 360
+      },
+      "id": "sticky-env",
+      "name": "Sticky Note6",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [720, 40],
+      "style": "background-color: #ffebee; border-color: #f44336;"
+    },
+    {
+      "parameters": {
+        "content": "## 💰 COSTS PER CONVERSATION\n\n**Twilio SMS:**\n- Initial: $0.0079\n- 6 replies avg: $0.05\n\n**Anthropic Claude:**\n- Per message: ~$0.002\n- 6 messages: $0.012\n\n**Total: ~$0.06 per conversation**\n\n**1000 conversations/month: $60**\n\n✅ Very affordable for automated lead gen!",
+        "height": 320,
+        "width": 340
+      },
+      "id": "sticky-costs",
+      "name": "Sticky Note7",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [1120, 40],
+      "style": "background-color: #e8f5e9; border-color: #4caf50;"
+    },
+    {
+      "parameters": {
+        "content": "## ⚡ ADVANTAGES OF NATIVE AGENT\n\n**vs Manual HTTP Request:**\n\n✅ **Easier Setup**\n- Visual configuration\n- No JSON crafting\n- Credential dropdown\n\n✅ **Built-in Features**\n- Automatic conversation memory\n- Context management\n- Tool calling support\n- Error handling\n\n✅ **Maintainability**\n- n8n updates it\n- Less code to maintain\n- Standard patterns\n\n✅ **Cleaner Workflow**\n- Fewer nodes\n- More readable\n- Better organized",
+        "height": 440,
+        "width": 360
+      },
+      "id": "sticky-advantages",
+      "name": "Sticky Note8",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [1500, 40],
+      "style": "background-color: #e1f5fe; border-color: #03a9f4;"
+    },
+    {
+      "parameters": {
+        "content": "## 📋 PRODUCTION CHECKLIST\n\n### Security\n- [ ] Tighten CORS (not wildcard)\n- [ ] Add webhook authentication\n- [ ] Validate Twilio signature\n- [ ] Implement rate limiting\n- [ ] Check opt-out list\n\n### Database\n- [ ] Store conversations (PostgreSQL)\n- [ ] Track message history\n- [ ] Implement timeouts (30 min)\n\n### Monitoring\n- [ ] Error alerts (Slack/email)\n- [ ] Cost tracking\n- [ ] Lead conversion metrics\n- [ ] Response time monitoring\n\n### Optimization\n- [ ] A/B test system prompts\n- [ ] Refine qualification keywords\n- [ ] Connect inventory API\n- [ ] Add tool calling to agent",
+        "height": 540,
+        "width": 400
+      },
+      "id": "sticky-todos",
+      "name": "Sticky Note9",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [1900, 40],
+      "style": "background-color: #fff9c4; border-color: #f57f17;"
+    }
+  ],
+  "connections": {
+    "Widget Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Fields": {
+      "main": [
+        [
+          {
+            "node": "Prepare Context",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Context": {
+      "main": [
+        [
+          {
+            "node": "Send Initial SMS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Initial SMS": {
+      "main": [
+        [
+          {
+            "node": "Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Twilio Inbound Webhook": {
+      "main": [
+        [
+          {
+            "node": "Parse SMS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse SMS": {
+      "main": [
+        [
+          {
+            "node": "AI Agent (Claude)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent (Claude)": {
+      "main": [
+        [
+          {
+            "node": "Process AI Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anthropic Claude Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent (Claude)",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Conversation Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent (Claude)",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process AI Response": {
+      "main": [
+        [
+          {
+            "node": "Send Reply SMS",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Check Lead Qualification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Reply SMS": {
+      "main": [
+        [
+          {
+            "node": "TwiML Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Lead Qualification": {
+      "main": [
+        [
+          {
+            "node": "Is Qualified?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Qualified?": {
+      "main": [
+        [
+          {
+            "node": "Forward to CRM",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Forward to CRM": {
+      "main": [
+        [
+          {
+            "node": "Send Confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "meta": {
+    "instanceId": "your-instance-id"
+  },
+  "pinData": {},
+  "versionId": "2.0.0"
+}

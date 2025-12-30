@@ -1,0 +1,331 @@
+{
+  "name": "Vapi Voice Calling - Customer Journey Outreach",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 2
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "2-Hour Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [250, 300],
+      "notes": "Runs every 2 hours during business hours (9 AM - 6 PM)"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "projectId": "={{ $credentials.projectId }}",
+        "location": "US",
+        "query": "-- Fetch prospects ready for voice outreach based on journey stage\nWITH calling_candidates AS (\n  SELECT \n    Client_Email as email,\n    Client_Cell as phone,\n    Client_First_Name as first_name,\n    Client_Last_Name as last_name,\n    Client_Full_Name as full_name,\n    Business_Unit_Name as dealership,\n    Prospect_Status as status,\n    Prospect_Created_Date as lead_date,\n    Prospect_Modified_Date as last_activity,\n    Desired_Make as interest_make,\n    Desired_Model as interest_model,\n    Salesperson_User_Full_Name as assigned_rep,\n    Trade_Make,\n    Trade_Model,\n    DATETIME_DIFF(CURRENT_DATETIME(), Prospect_Modified_Date, DAY) as days_since_activity,\n    \n    -- Determine calling priority and strategy\n    CASE \n      -- HOT LEADS - Immediate callback\n      WHEN Prospect_Status = '***HOT PROSPECT' THEN 'immediate_callback'\n      WHEN Prospect_Status = 'Appointment Missed/Canceled' THEN 'reschedule_call'\n      WHEN Prospect_Status = 'Manager Help Needed' THEN 'manager_callback'\n      \n      -- WARM LEADS - Nurture calls\n      WHEN Prospect_Status = 'Working' AND days_since_activity > 3 THEN 'follow_up_call'\n      WHEN Prospect_Status = 'New' AND days_since_activity < 1 THEN 'welcome_call'\n      WHEN Prospect_Status = 'Service' THEN 'service_to_sales_call'\n      \n      -- COLD LEADS - Re-engagement\n      WHEN Prospect_Status = 'Non-Responsive C/O' AND days_since_activity > 7 THEN 'winback_call'\n      WHEN Prospect_Status = 'Unable to Obtain Financing C/O' THEN 'financing_options_call'\n      \n      ELSE 'standard_outreach'\n    END as call_strategy,\n    \n    -- Set call priority (1 = highest)\n    CASE\n      WHEN Prospect_Status = '***HOT PROSPECT' THEN 1\n      WHEN Prospect_Status = 'Manager Help Needed' THEN 1\n      WHEN Prospect_Status = 'Appointment Missed/Canceled' THEN 2\n      WHEN Prospect_Status = 'Working' THEN 3\n      WHEN Prospect_Status = 'New' THEN 3\n      ELSE 4\n    END as call_priority\n    \n  FROM `{{ $json.projectId }}.marketing.prospects`\n  WHERE Client_Cell IS NOT NULL\n    AND Client_Cell != ''\n    AND Dealer_Contact_Consent_for_Phone = 'Y'\n    AND Prospect_Status NOT IN (\n      'Sold - Integration',\n      'Bought Elsewhere',\n      'Dead',\n      'Duplicate',\n      'Opted-Out of All Comm C/O'\n    )\n    AND DATE(Prospect_Modified_Date) >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)\n),\n\n-- Check recent call history to avoid over-calling\ncall_history AS (\n  SELECT \n    phone_number,\n    MAX(call_date) as last_call_date,\n    COUNT(*) as call_count_7d\n  FROM `{{ $json.projectId }}.marketing.vapi_call_logs`\n  WHERE DATE(call_date) >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)\n  GROUP BY phone_number\n)\n\nSELECT \n  c.*,\n  COALESCE(h.call_count_7d, 0) as recent_call_count,\n  DATETIME_DIFF(CURRENT_DATETIME(), h.last_call_date, HOUR) as hours_since_last_call\nFROM calling_candidates c\nLEFT JOIN call_history h ON c.phone = h.phone_number\nWHERE (\n  h.phone_number IS NULL  -- Never called\n  OR (\n    c.call_priority = 1 AND hours_since_last_call > 24  -- Hot leads: call daily\n    OR c.call_priority = 2 AND hours_since_last_call > 48  -- Warm: every 2 days\n    OR c.call_priority >= 3 AND hours_since_last_call > 72  -- Cold: every 3 days\n  )\n)\n  AND COALESCE(h.call_count_7d, 0) < 5  -- Max 5 calls per week\nORDER BY call_priority ASC, days_since_activity ASC\nLIMIT 50  -- Process 50 calls per batch"
+      },
+      "id": "fetch-calling-list",
+      "name": "Fetch Calling List",
+      "type": "n8n-nodes-base.googleBigQuery",
+      "typeVersion": 2,
+      "position": [450, 300],
+      "credentials": {
+        "googleBigQueryOAuth2Api": {
+          "id": "bigquery-oauth",
+          "name": "BigQuery OAuth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// VAPI VOICE CALLING ORCHESTRATOR\n// Segment prospects and create personalized calling campaigns\n\nconst prospects = $('Fetch Calling List').all();\n\n// Configuration\nconst config = {\n  vapi: {\n    apiKey: $getNodeParameter('vapiApiKey', 'YOUR_VAPI_KEY'),\n    baseUrl: 'https://api.vapi.ai',\n    phoneNumberId: $getNodeParameter('vapiPhoneNumber', 'YOUR_PHONE_ID')\n  },\n  calling: {\n    maxConcurrent: 5,\n    businessHours: {\n      start: 9,\n      end: 18,\n      timezone: 'America/Los_Angeles'\n    },\n    maxAttemptsPerDay: 3,\n    voicemailDetection: true\n  },\n  assistants: {\n    hot_lead: 'asst_hot_lead_id',\n    appointment_rescue: 'asst_appointment_id',\n    nurture: 'asst_nurture_id',\n    winback: 'asst_winback_id',\n    service_to_sales: 'asst_service_id',\n    financing: 'asst_financing_id'\n  }\n};\n\n// Group prospects by call strategy\nfunction segmentByStrategy(prospects) {\n  const segments = {};\n  \n  prospects.forEach(prospect => {\n    const strategy = prospect.json.call_strategy;\n    if (!segments[strategy]) {\n      segments[strategy] = [];\n    }\n    segments[strategy].push(prospect.json);\n  });\n  \n  return segments;\n}\n\n// Create call configuration based on strategy\nfunction createCallConfig(prospect, strategy) {\n  const baseConfig = {\n    phoneNumberId: config.vapi.phoneNumberId,\n    customer: {\n      number: prospect.phone,\n      name: prospect.full_name || `${prospect.first_name} ${prospect.last_name}`,\n      email: prospect.email\n    },\n    metadata: {\n      prospectId: prospect.email,\n      dealership: prospect.dealership,\n      status: prospect.status,\n      assignedRep: prospect.assigned_rep,\n      interestMake: prospect.interest_make,\n      interestModel: prospect.interest_model,\n      callStrategy: strategy,\n      leadDate: prospect.lead_date\n    }\n  };\n  \n  // Strategy-specific configurations\n  switch(strategy) {\n    case 'immediate_callback':\n      return {\n        ...baseConfig,\n        assistantId: config.assistants.hot_lead,\n        firstMessage: `Hi ${prospect.first_name}, this is a callback from ${prospect.dealership} regarding your interest in the ${prospect.interest_make} ${prospect.interest_model}. Is now a good time to talk?`,\n        voicemailMessage: `Hi ${prospect.first_name}, this is ${prospect.dealership} returning your call about the ${prospect.interest_model}. Please call us back at your earliest convenience.`,\n        maxDuration: 600, // 10 minutes\n        recordingEnabled: true\n      };\n      \n    case 'reschedule_call':\n      return {\n        ...baseConfig,\n        assistantId: config.assistants.appointment_rescue,\n        firstMessage: `Hi ${prospect.first_name}, I'm calling from ${prospect.dealership}. I noticed you had an appointment scheduled that didn't work out. I'd love to help reschedule at a more convenient time for you.`,\n        voicemailMessage: `Hi ${prospect.first_name}, sorry we missed your appointment. Please call us back to reschedule. We're holding the ${prospect.interest_model} for you.`,\n        maxDuration: 300,\n        recordingEnabled: true\n      };\n      \n    case 'follow_up_call':\n      return {\n        ...baseConfig,\n        assistantId: config.assistants.nurture,\n        firstMessage: `Hi ${prospect.first_name}, I'm following up from ${prospect.dealership} about your interest in the ${prospect.interest_model}. Do you have any questions I can help answer?`,\n        voicemailMessage: `Hi ${prospect.first_name}, just following up on your inquiry. We have some new incentives available. Please give us a call back when convenient.`,\n        maxDuration: 480,\n        recordingEnabled: true\n      };\n      \n    case 'welcome_call':\n      return {\n        ...baseConfig,\n        assistantId: config.assistants.nurture,\n        firstMessage: `Hi ${prospect.first_name}, welcome to ${prospect.dealership}! I saw you were looking at our ${prospect.interest_make} inventory online. How can I help you today?`,\n        voicemailMessage: `Hi ${prospect.first_name}, thanks for visiting ${prospect.dealership} online. We're here to help with any questions. Call us back anytime.`,\n        maxDuration: 300,\n        recordingEnabled: true\n      };\n      \n    case 'service_to_sales_call':\n      return {\n        ...baseConfig,\n        assistantId: config.assistants.service_to_sales,\n        firstMessage: `Hi ${prospect.first_name}, as a valued service customer at ${prospect.dealership}, I wanted to share an exclusive upgrade opportunity that might interest you.`,\n        voicemailMessage: `Hi ${prospect.first_name}, we have a special offer for our service customers. Please call back to learn about exclusive pricing on new vehicles.`,\n        maxDuration: 420,\n        recordingEnabled: true\n      };\n      \n    case 'winback_call':\n      return {\n        ...baseConfig,\n        assistantId: config.assistants.winback,\n        firstMessage: `Hi ${prospect.first_name}, I'm reaching out from ${prospect.dealership}. We noticed you were interested in a vehicle but haven't heard back. Is there anything that's holding you back that I can help with?`,\n        voicemailMessage: `Hi ${prospect.first_name}, we'd love to earn your business. We have new offers available. Please give us another chance to help you.`,\n        maxDuration: 360,\n        recordingEnabled: true\n      };\n      \n    case 'financing_options_call':\n      return {\n        ...baseConfig,\n        assistantId: config.assistants.financing,\n        firstMessage: `Hi ${prospect.first_name}, I'm calling from ${prospect.dealership} with good news. We have new financing options that weren't available before, including programs for all credit situations.`,\n        voicemailMessage: `Hi ${prospect.first_name}, good news! We have new financing options available. Please call back to discuss how we can get you approved.`,\n        maxDuration: 480,\n        recordingEnabled: true\n      };\n      \n    default:\n      return {\n        ...baseConfig,\n        assistantId: config.assistants.nurture,\n        firstMessage: `Hi ${prospect.first_name}, I'm calling from ${prospect.dealership}. How can I help you with your vehicle search today?`,\n        voicemailMessage: `Hi ${prospect.first_name}, thanks for your interest in ${prospect.dealership}. Please call us back at your convenience.`,\n        maxDuration: 300,\n        recordingEnabled: true\n      };\n  }\n}\n\n// Check if current time is within business hours\nfunction isBusinessHours() {\n  const now = new Date();\n  const hour = now.getHours();\n  return hour >= config.calling.businessHours.start && \n         hour < config.calling.businessHours.end;\n}\n\n// Prepare Vapi API calls\nfunction prepareVapiCalls(segments) {\n  const calls = [];\n  \n  if (!isBusinessHours()) {\n    return [{\n      type: 'error',\n      message: 'Outside business hours',\n      nextRunTime: getNextBusinessHour()\n    }];\n  }\n  \n  Object.keys(segments).forEach(strategy => {\n    const prospects = segments[strategy];\n    \n    prospects.forEach((prospect, index) => {\n      // Limit concurrent calls\n      if (calls.length >= config.calling.maxConcurrent) {\n        return;\n      }\n      \n      const callConfig = createCallConfig(prospect, strategy);\n      \n      calls.push({\n        type: 'call',\n        strategy: strategy,\n        priority: prospect.call_priority,\n        config: callConfig,\n        prospect: prospect,\n        scheduledTime: new Date(Date.now() + (index * 30000)) // Stagger by 30 seconds\n      });\n    });\n  });\n  \n  return calls;\n}\n\n// Calculate next business hour\nfunction getNextBusinessHour() {\n  const now = new Date();\n  const tomorrow = new Date(now);\n  tomorrow.setDate(tomorrow.getDate() + 1);\n  tomorrow.setHours(config.calling.businessHours.start, 0, 0, 0);\n  return tomorrow.toISOString();\n}\n\n// Main execution\nconst segments = segmentByStrategy(prospects);\nconst calls = prepareVapiCalls(segments);\n\n// Prepare output\nconst output = [];\n\n// Add summary\noutput.push({\n  json: {\n    type: 'summary',\n    total_prospects: prospects.length,\n    is_business_hours: isBusinessHours(),\n    segments: Object.keys(segments).map(strategy => ({\n      strategy: strategy,\n      count: segments[strategy].length\n    })),\n    calls_scheduled: calls.filter(c => c.type === 'call').length,\n    timestamp: new Date().toISOString()\n  }\n});\n\n// Add individual calls\ncalls.forEach(call => {\n  output.push({\n    json: call\n  });\n});\n\nreturn output;"
+      },
+      "id": "calling-orchestrator",
+      "name": "Vapi Calling Orchestrator",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.type }}",
+              "operation": "equals",
+              "value2": "call"
+            }
+          ]
+        }
+      },
+      "id": "filter-calls",
+      "name": "Filter Valid Calls",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 1,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.vapi.ai/call",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer {{ $credentials.vapiApiKey }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.config) }}",
+        "options": {}
+      },
+      "id": "create-vapi-call",
+      "name": "Create Vapi Call",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1050, 300],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "vapi-auth",
+          "name": "Vapi API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "projectId": "={{ $credentials.projectId }}",
+        "datasetId": "marketing",
+        "tableId": "vapi_call_logs",
+        "columns": "phone_number,prospect_email,call_strategy,call_id,status,scheduled_at,dealership,interest_make,interest_model",
+        "options": {}
+      },
+      "id": "log-call",
+      "name": "Log Call to BigQuery",
+      "type": "n8n-nodes-base.googleBigQuery",
+      "typeVersion": 2,
+      "position": [1250, 300],
+      "credentials": {
+        "googleBigQueryOAuth2Api": {
+          "id": "bigquery-oauth",
+          "name": "BigQuery OAuth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.priority }}",
+              "operation": "equals",
+              "value2": "1"
+            }
+          ]
+        }
+      },
+      "id": "check-priority",
+      "name": "Check High Priority",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1450, 300]
+    },
+    {
+      "parameters": {
+        "fromEmail": "vapi@dealership.com",
+        "toEmail": "{{ $json.prospect.assigned_rep }}@dealership.com",
+        "subject": "High Priority Call Initiated - {{ $json.prospect.full_name }}",
+        "text": "A high priority call has been initiated to {{ $json.prospect.full_name }}\\n\\nPhone: {{ $json.prospect.phone }}\\nStatus: {{ $json.prospect.status }}\\nInterest: {{ $json.prospect.interest_make }} {{ $json.prospect.interest_model }}\\nStrategy: {{ $json.strategy }}\\n\\nPlease be ready for potential callback or transfer.",
+        "options": {}
+      },
+      "id": "alert-sales-rep",
+      "name": "Alert Sales Rep",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [1650, 400],
+      "credentials": {
+        "smtp": {
+          "id": "smtp-credentials",
+          "name": "SMTP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "path": "vapi-webhook",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "vapi-webhook",
+      "name": "Vapi Call Events Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 500],
+      "webhookId": "vapi-events"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Process Vapi webhook events\nconst event = $input.all()[0].json;\n\nconst output = {\n  type: event.type,\n  callId: event.call?.id,\n  status: event.call?.status,\n  duration: event.call?.duration,\n  recordingUrl: event.call?.recordingUrl,\n  transcript: event.call?.transcript,\n  timestamp: new Date().toISOString()\n};\n\n// Handle different event types\nswitch(event.type) {\n  case 'call.started':\n    output.message = 'Call initiated successfully';\n    break;\n    \n  case 'call.answered':\n    output.message = 'Customer answered the call';\n    output.shouldLog = true;\n    break;\n    \n  case 'call.ended':\n    output.message = 'Call completed';\n    output.shouldLog = true;\n    output.followUp = determineFollowUp(event.call);\n    break;\n    \n  case 'voicemail.detected':\n    output.message = 'Voicemail detected';\n    output.shouldRetry = true;\n    break;\n    \n  default:\n    output.message = `Event: ${event.type}`;\n}\n\nfunction determineFollowUp(call) {\n  // Analyze call outcome and determine next action\n  if (call.duration < 30) {\n    return 'schedule_retry';\n  } else if (call.metadata?.appointmentScheduled) {\n    return 'confirm_appointment';\n  } else if (call.metadata?.callbackRequested) {\n    return 'schedule_callback';\n  }\n  return 'log_only';\n}\n\nreturn [{ json: output }];"
+      },
+      "id": "process-webhook",
+      "name": "Process Webhook Event",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [450, 500]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ received: true, processedAt: $now.toISO() }) }}",
+        "options": {}
+      },
+      "id": "webhook-response",
+      "name": "Webhook Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [650, 500]
+    },
+    {
+      "parameters": {
+        "content": "## Vapi Voice Calling Workflow - Flow Explanation\\n\\n### Main Flow (Top Path):\\n1. **2-Hour Schedule** → Triggers every 2 hours during business hours\\n2. **Fetch Calling List** → Pulls prospects from BigQuery with phone consent\\n3. **Vapi Calling Orchestrator** → Segments prospects by strategy (hot/warm/cold)\\n4. **Filter Valid Calls** → Only processes calls during business hours\\n5. **Create Vapi Call** → Initiates AI voice call via Vapi API\\n6. **Log to BigQuery** → Records call attempt for compliance\\n7. **Check Priority** → Identifies high-priority calls\\n8. **Alert Sales Rep** → Notifies rep for hot leads\\n\\n### Webhook Flow (Bottom Path):\\n1. **Vapi Webhook** → Receives real-time call events\\n2. **Process Event** → Handles call status (answered/voicemail/ended)\\n3. **Webhook Response** → Confirms receipt to Vapi\\n\\n### Key Features:\\n- **Smart Prioritization**: Hot leads get immediate callbacks\\n- **Frequency Control**: Prevents over-calling (max 5/week)\\n- **Business Hours**: No calls outside 9 AM - 6 PM\\n- **Dynamic Scripts**: Personalized based on prospect status\\n- **Compliance**: Logs all attempts, respects opt-outs",
+        "height": 400,
+        "width": 350
+      },
+      "id": "flow-explanation",
+      "name": "Workflow Flow Explanation",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [900, 100]
+    }
+  ],
+  "connections": {
+    "2-Hour Schedule": {
+      "main": [
+        [
+          {
+            "node": "Fetch Calling List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Calling List": {
+      "main": [
+        [
+          {
+            "node": "Vapi Calling Orchestrator",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vapi Calling Orchestrator": {
+      "main": [
+        [
+          {
+            "node": "Filter Valid Calls",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Valid Calls": {
+      "main": [
+        [
+          {
+            "node": "Create Vapi Call",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Vapi Call": {
+      "main": [
+        [
+          {
+            "node": "Log Call to BigQuery",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Call to BigQuery": {
+      "main": [
+        [
+          {
+            "node": "Check High Priority",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check High Priority": {
+      "main": [
+        [
+          {
+            "node": "Alert Sales Rep",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Vapi Call Events Webhook": {
+      "main": [
+        [
+          {
+            "node": "Process Webhook Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Webhook Event": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "v1",
+  "id": "vapi-voice-calling",
+  "tags": [
+    {
+      "name": "vapi"
+    },
+    {
+      "name": "voice"
+    },
+    {
+      "name": "calling"
+    }
+  ]
+}

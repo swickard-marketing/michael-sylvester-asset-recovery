@@ -1,0 +1,486 @@
+{
+  "name": "Pre-owned Inventory Sync - Reynolds FTP to Google Sheets",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "your-instance-id"
+  },
+  "tags": [
+    {
+      "createdAt": "2025-10-14T00:00:00.000Z",
+      "updatedAt": "2025-10-14T00:00:00.000Z",
+      "id": "1",
+      "name": "FTP Sync"
+    },
+    {
+      "createdAt": "2025-10-14T00:00:00.000Z",
+      "updatedAt": "2025-10-14T00:00:00.000Z",
+      "id": "2",
+      "name": "Google Sheets"
+    },
+    {
+      "createdAt": "2025-10-14T00:00:00.000Z",
+      "updatedAt": "2025-10-14T00:00:00.000Z",
+      "id": "3",
+      "name": "Vehicle Inventory"
+    }
+  ],
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 1
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger-001",
+      "name": "Schedule Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [250, 400],
+      "notes": "⏰ Runs workflow every hour"
+    },
+    {
+      "parameters": {
+        "protocol": "ftp",
+        "host": "={{$env.FTP_HOST}}",
+        "port": 21,
+        "username": "={{$env.FTP_USER}}",
+        "password": "={{$env.FTP_PASS}}",
+        "operation": "list",
+        "path": "/",
+        "recursive": false
+      },
+      "id": "ftp-list-001",
+      "name": "FTP - List Files",
+      "type": "n8n-nodes-base.ftp",
+      "typeVersion": 1,
+      "position": [450, 400],
+      "notes": "📁 Lists all files from Reynolds FTP root directory"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.name}}",
+              "operation": "endsWith",
+              "value2": "U_INV.csv"
+            }
+          ]
+        }
+      },
+      "id": "filter-csv-001",
+      "name": "Filter CSV Files",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [650, 400],
+      "notes": "🔍 Filters for Used vehicle inventory files (*U_INV.csv)"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const item = $input.item.json;\nlet downloadPath = item.path || item.name;\n\nif (downloadPath.startsWith('/')) {\n  downloadPath = downloadPath.substring(1);\n}\n\nreturn {\n  json: {\n    ...item,\n    downloadPath: downloadPath,\n    originalName: item.name\n  }\n};"
+      },
+      "id": "construct-path-001",
+      "name": "Construct FTP Path",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [750, 400],
+      "notes": "🔧 Normalizes file paths for download"
+    },
+    {
+      "parameters": {
+        "protocol": "ftp",
+        "host": "={{$env.FTP_HOST}}",
+        "port": 21,
+        "username": "={{$env.FTP_USER}}",
+        "password": "={{$env.FTP_PASS}}",
+        "operation": "download",
+        "path": "={{$json.downloadPath}}",
+        "binaryPropertyName": "data"
+      },
+      "id": "ftp-download-001",
+      "name": "FTP - Download File",
+      "type": "n8n-nodes-base.ftp",
+      "typeVersion": 1,
+      "position": [950, 400],
+      "notes": "⬇️ Downloads each CSV file (35 files, ~5-15MB total)"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Parse CSV from binary data - FILESYSTEM MODE FIX\nconst allVehicles = [];\n\n// Helper function to parse CSV line with quote handling\nfunction parseCSVLine(line) {\n  const result = [];\n  let current = '';\n  let inQuotes = false;\n\n  for (let i = 0; i < line.length; i++) {\n    const char = line[i];\n\n    if (char === '\"') {\n      inQuotes = !inQuotes;\n    } else if (char === ',' && !inQuotes) {\n      result.push(current.trim());\n      current = '';\n    } else {\n      current += char;\n    }\n  }\n  result.push(current.trim());\n  return result;\n}\n\n// Process all items using $binary helper (works with filesystem mode)\nfor (let i = 0; i < items.length; i++) {\n  const item = items[i];\n\n  if (!item.binary || !item.binary.data) {\n    console.log(`Item ${i}: No binary data found`);\n    continue;\n  }\n\n  try {\n    // Use the helpers to get binary data buffer (handles filesystem mode)\n    const binaryDataBuffer = await this.helpers.getBinaryDataBuffer(i, 'data');\n\n    // Convert buffer to string\n    const csvText = binaryDataBuffer.toString('utf-8');\n\n    // Split into lines\n    const lines = csvText.split('\\n').filter(line => line.trim());\n\n    if (lines.length === 0) {\n      console.log(`Item ${i}: Empty CSV file`);\n      continue;\n    }\n\n    // Get headers from first line\n    const headers = parseCSVLine(lines[0]);\n\n    // Parse all data rows from this CSV\n    for (let j = 1; j < lines.length; j++) {\n      const values = parseCSVLine(lines[j]);\n\n      // Create object from headers and values\n      const vehicle = {};\n      headers.forEach((header, index) => {\n        vehicle[header] = values[index] || '';\n      });\n\n      // Add source file for tracking\n      vehicle['_source_file'] = item.json.originalName || item.json.name || 'unknown';\n\n      allVehicles.push({ json: vehicle });\n    }\n\n  } catch (error) {\n    console.log(`Item ${i}: Error parsing CSV - ${error.message}`);\n    continue;\n  }\n}\n\nconsole.log(`Parsed ${allVehicles.length} total vehicles from ${items.length} CSV files`);\n\nreturn allVehicles;"
+      },
+      "id": "parse-csv-001",
+      "name": "Parse CSV to JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1050, 400],
+      "notes": "🔄 Converts binary CSV files to JSON (~2,470 vehicles)"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Filter vehicles for Pre-Owned Specials (matches Python script logic)\nconst MIN_PRICE = 2000;\nconst MAX_PRICE = 99999;\nconst MIN_MILEAGE = 100;\n\n// Helper: Parse price from string\nfunction parsePrice(priceStr) {\n  if (!priceStr) return null;\n  const priceClean = String(priceStr).replace(/[^0-9.]/g, '');\n  if (!priceClean) return null;\n  const price = parseFloat(priceClean);\n  return isNaN(price) ? null : price;\n}\n\n// Helper: Parse mileage from string\nfunction parseMileage(mileageStr) {\n  if (!mileageStr) return null;\n  const mileageClean = String(mileageStr).replace(/[^0-9]/g, '');\n  if (!mileageClean) return null;\n  const mileage = parseInt(mileageClean);\n  return isNaN(mileage) ? null : mileage;\n}\n\n// Helper: Get field name from possible variations\nfunction getField(item, possibleNames) {\n  for (const name of possibleNames) {\n    if (item[name] !== undefined && item[name] !== '') {\n      return item[name];\n    }\n  }\n  return null;\n}\n\nconst filteredVehicles = [];\nlet stats = {\n  total: items.length,\n  condition_filtered: 0,\n  price_low: 0,\n  price_high: 0,\n  price_invalid: 0,\n  mileage_low: 0,\n  price_validation_failed: 0,\n  missing_fields: 0,\n  passed: 0\n};\n\nfor (const item of items) {\n  const vehicle = item.json;\n  \n  // 1. Filter by Condition (USED only)\n  const condition = getField(vehicle, ['Condition', 'CONDITION', 'condition', 'Type', 'TYPE']);\n  if (condition && condition.toUpperCase() !== 'USED') {\n    stats.condition_filtered++;\n    continue;\n  }\n  \n  // 2. Check required fields\n  const stockNum = getField(vehicle, ['Stock', 'StockNum', 'Stock_Number', 'STOCK', 'Stock #']);\n  if (!stockNum) {\n    stats.missing_fields++;\n    continue;\n  }\n  \n  // 3. Filter by Price\n  const priceIs = parsePrice(getField(vehicle, ['Price_Is', 'Price', 'PRICE', 'Internet_Price', 'Sale_Price']));\n  \n  if (priceIs === null) {\n    stats.price_invalid++;\n    continue;\n  }\n  \n  if (priceIs <= MIN_PRICE) {\n    stats.price_low++;\n    continue;\n  }\n  \n  if (priceIs > MAX_PRICE) {\n    stats.price_high++;\n    continue;\n  }\n  \n  // 4. Filter by Mileage (>= 100 miles to exclude \"coming soon\" vehicles)\n  const mileage = parseMileage(getField(vehicle, ['Mileage', 'MILEAGE', 'mileage', 'Odometer', 'Miles']));\n  \n  if (mileage !== null && mileage < MIN_MILEAGE) {\n    stats.mileage_low++;\n    continue;\n  }\n  \n  // 5. Price Validation (Price_Was > Price_Is for valid specials)\n  const priceWas = parsePrice(getField(vehicle, ['Price_Was', 'MSRP', 'msrp', 'Original_Price']));\n  \n  if (priceWas !== null && priceIs !== null) {\n    if (priceWas < priceIs) {\n      stats.price_validation_failed++;\n      console.log(`Price validation failed: ${stockNum} - Was: $${priceWas}, Is: $${priceIs}`);\n      continue;\n    }\n  }\n  \n  // Vehicle passed all filters\n  stats.passed++;\n  filteredVehicles.push(item);\n}\n\n// Log filtering statistics\nconsole.log('=== Vehicle Filtering Stats ===');\nconsole.log(`Total vehicles: ${stats.total}`);\nconsole.log(`Filtered out:`);\nconsole.log(`  - Condition (not USED): ${stats.condition_filtered}`);\nconsole.log(`  - Price too low (<=$${MIN_PRICE}): ${stats.price_low}`);\nconsole.log(`  - Price too high (>$${MAX_PRICE}): ${stats.price_high}`);\nconsole.log(`  - Price invalid/missing: ${stats.price_invalid}`);\nconsole.log(`  - Mileage too low (<${MIN_MILEAGE}): ${stats.mileage_low}`);\nconsole.log(`  - Price validation failed (Was<Is): ${stats.price_validation_failed}`);\nconsole.log(`  - Missing required fields: ${stats.missing_fields}`);\nconsole.log(`Passed filters: ${stats.passed} vehicles`);\n\nreturn filteredVehicles;"
+      },
+      "id": "filter-specials-001",
+      "name": "Filter Pre-Owned Specials",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1250, 400],
+      "notes": "🎯 Filters vehicles for specials (price, mileage, condition, validation)"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Filter by Stock Number List (matches Python script logic)\n// Set STOCK_LIST to your preferred stock numbers, or leave empty to use all filtered vehicles\n\nconst STOCK_LIST = []; // Example: ['A12345', 'B67890', 'C11111']\nconst MIN_VEHICLES = 12; // Minimum vehicles to return\n\n// If stock list is empty or not enabled, return all vehicles\nif (!STOCK_LIST || STOCK_LIST.length === 0) {\n  console.log(`Stock filter disabled - returning all ${items.length} filtered vehicles`);\n  return items;\n}\n\n// Helper: Get stock number from vehicle\nfunction getStockNumber(vehicle) {\n  const possibleFields = ['Stock', 'StockNum', 'Stock_Number', 'STOCK', 'Stock #', 'stock'];\n  for (const field of possibleFields) {\n    if (vehicle[field]) {\n      return String(vehicle[field]).trim();\n    }\n  }\n  return null;\n}\n\n// Convert stock list to uppercase for case-insensitive matching\nconst stockListUpper = STOCK_LIST.map(s => String(s).toUpperCase());\n\n// First: Get vehicles matching stock list\nconst matchingVehicles = [];\nconst remainingVehicles = [];\n\nfor (const item of items) {\n  const stockNum = getStockNumber(item.json);\n  if (!stockNum) {\n    continue; // Skip vehicles without stock number\n  }\n  \n  if (stockListUpper.includes(stockNum.toUpperCase())) {\n    matchingVehicles.push(item);\n  } else {\n    remainingVehicles.push(item);\n  }\n}\n\nconsole.log(`Stock filter: ${matchingVehicles.length} vehicles matched stock list`);\n\n// If we have enough matching vehicles, return them\nif (matchingVehicles.length >= MIN_VEHICLES) {\n  console.log(`Returning ${matchingVehicles.length} vehicles from stock list`);\n  return matchingVehicles;\n}\n\n// Otherwise, add more vehicles to reach minimum\nconst itemsNeeded = MIN_VEHICLES - matchingVehicles.length;\nconst additionalVehicles = remainingVehicles.slice(0, itemsNeeded);\n\nconst finalVehicles = [...matchingVehicles, ...additionalVehicles];\n\nconsole.log(`Stock filter: Added ${additionalVehicles.length} additional vehicles to reach minimum (${MIN_VEHICLES})`);\nconsole.log(`Final count: ${finalVehicles.length} vehicles`);\n\nreturn finalVehicles;"
+      },
+      "id": "filter-stock-001",
+      "name": "Filter by Stock List",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1450, 400],
+      "notes": "📋 Filters by stock number list (optional, min 12 vehicles)"
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "resource": "sheet",
+        "operation": "clear",
+        "documentId": {
+          "__rl": true,
+          "value": "1PkU3Sh9fgWWaz25OqymT2P_EWzB_UvWghgrizTWjHlA",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Pre-Owned Specials Automation",
+          "mode": "name"
+        },
+        "clear": "clear",
+        "options": {}
+      },
+      "id": "clear-sheet-001",
+      "name": "Clear Google Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.4,
+      "position": [1650, 400],
+      "notes": "🗑️ Clears existing data to ensure true sync (not append)"
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "resource": "sheet",
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1PkU3Sh9fgWWaz25OqymT2P_EWzB_UvWghgrizTWjHlA",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Pre-Owned Specials Automation",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {
+          "useAppend": true,
+          "usePathForKeyRow": false
+        }
+      },
+      "id": "sheets-append-001",
+      "name": "Google Sheets - Append Data",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.4,
+      "position": [1850, 400],
+      "notes": "📊 Uploads filtered specials to Google Sheets"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Log successful sync with timestamp\nconst timestamp = new Date().toISOString();\nconst vehicleCount = items.length;\n\nconsole.log(`✅ Successfully synced ${vehicleCount} pre-owned specials at ${timestamp}`);\nconsole.log(`📊 Data uploaded to Google Sheets: Pre-Owned Specials Automation`);\n\nreturn items;"
+      },
+      "id": "log-success-001",
+      "name": "Log Success",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2050, 400],
+      "notes": "📝 Logs completion for monitoring and audit trail"
+    },
+    {
+      "parameters": {
+        "content": "## 🚀 Pre-Owned Specials Sync\n\n**Purpose:** Auto-sync qualifying pre-owned vehicle specials from Reynolds FTP to Google Sheets every hour\n\n### Flow:\n```\n⏰ Schedule → 📁 List FTP → 🔍 Filter Files\n  → ⬇️ Download → 🔄 Parse CSV\n  → 🎯 Filter Specials → 📋 Filter Stock List\n  → 🗑️ Clear Sheet → 📊 Upload → 📝 Log\n```\n\n### Filtering Criteria:\n**Production Filters:**\n- Condition: USED only\n- Price: $2,001 - $99,999\n- Mileage: ≥ 100 miles\n- Price_Was > Price_Is (valid discount)\n\n**Stock List Filter:**\n- Optional stock number list\n- Min 12 vehicles guaranteed\n- Disabled by default (edit node to enable)\n\n### Setup Required:\n**Env Variables:**\n- FTP_HOST=ftp.maxdigital.com\n- FTP_USER=109424_Google\n- FTP_PASS=nwdngmsS\n\n**Google OAuth:**\n- Connect account on Clear/Append nodes\n\n**Target Sheet:**\n- ID: 1PkU3Sh9fgWWaz25OqymT2P_EWzB_UvWghgrizTWjHlA\n- Tab: Pre-Owned Specials Automation\n\n### Expected Results:\n- Files: 35 processed\n- Before filters: ~2,470 vehicles\n- After filters: ~200-500 specials\n- Execution: ~45 sec\n- Frequency: 720 runs/month\n\n**See detailed docs:** PRE_OWNED_INVENTORY_SYNC_README.md",
+        "height": 600,
+        "width": 380
+      },
+      "id": "sticky-overview",
+      "name": "📋 Overview",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [120, 50]
+    },
+    {
+      "parameters": {
+        "content": "## 🎯 FILTER PRE-OWNED SPECIALS\n\n**Purpose:** Filters vehicles to only include qualifying specials\n\n**Filters Applied:**\n\n**1. Condition Filter:**\n- USED vehicles only\n- Excludes NEW vehicles\n\n**2. Price Range:**\n- Min: $2,001 (excludes $0-$2000)\n- Max: $99,999\n- Filters out invalid/missing prices\n\n**3. Mileage Filter:**\n- Min: 100 miles\n- Excludes \"coming soon\" vehicles\n- Vehicles with no mileage data pass\n\n**4. Price Validation:**\n- Price_Was must be > Price_Is\n- Ensures valid discount/special\n- Prevents pricing errors\n\n**5. Required Fields:**\n- Must have Stock Number\n- Other fields optional\n\n**Statistics:**\n- Input: ~2,470 vehicles\n- Output: ~200-500 specials\n- Logs detailed filter stats\n\n**Matches Python Script:**\nSame logic as inventory_sync.py:\n- filter_by_production_criteria()\n- filter_by_price()\n- filter_by_mileage()\n- enhanced_price_validation()\n\n**Customize:**\nEdit code to adjust:\n- MIN_PRICE (currently $2,000)\n- MAX_PRICE (currently $99,999)\n- MIN_MILEAGE (currently 100 miles)",
+        "height": 600,
+        "width": 320
+      },
+      "id": "sticky-filter-specials",
+      "name": "Note - Filter Specials",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [1140, 580]
+    },
+    {
+      "parameters": {
+        "content": "## 📋 FILTER BY STOCK LIST\n\n**Purpose:** Optional filtering by specific stock numbers\n\n**How It Works:**\n\n**1. Stock List:**\n```javascript\nconst STOCK_LIST = [\n  'A12345',\n  'B67890',\n  'C11111'\n];\n```\nEdit code to add your stock numbers\n\n**2. Matching:**\n- Finds vehicles in stock list\n- Case-insensitive matching\n\n**3. Minimum Guarantee:**\n- MIN_VEHICLES = 12\n- If stock list has <12, adds more\n- Ensures enough vehicles for email\n\n**4. Disabled by Default:**\n```javascript\nconst STOCK_LIST = [];\n// Empty = returns all filtered vehicles\n```\n\n**Enable Stock Filter:**\n1. Edit this node\n2. Add stock numbers to STOCK_LIST\n3. Save and test\n\n**Use Cases:**\n\n**Campaign-Specific:**\n- Hand-picked featured vehicles\n- Best deals this week\n- Clearance items\n\n**Dealer-Specific:**\n- Filter by dealership\n- Regional campaigns\n\n**Auto Mode (Default):**\n- Empty stock list\n- Returns all qualifying specials\n- ~200-500 vehicles\n\n**Matches Python Script:**\nSame logic as:\n- filter_by_stock_numbers()\n- Minimum count guarantee\n- Fallback to additional vehicles",
+        "height": 640,
+        "width": 320
+      },
+      "id": "sticky-filter-stock",
+      "name": "Note - Stock Filter",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [1340, 580]
+    },
+    {
+      "parameters": {
+        "content": "## ⏰ SCHEDULE TRIGGER\n\n**Purpose:** Automatically runs workflow every hour\n\n**Configuration:**\n- Interval: Every 1 hour\n- Runs 24/7 continuously\n- Total: 720 executions/month\n\n**When It Runs:**\n- Every hour on the hour (e.g., 1:00, 2:00, 3:00)\n- No manual intervention required\n- Continues running even if previous execution failed\n\n**Why Hourly:**\n- Keeps Google Sheet in sync with FTP\n- Fresh inventory data for email campaigns\n- New vehicles appear within 1 hour\n- Price updates reflected quickly\n\n**Adjusting Frequency:**\n\nMore Frequent (every 30 min):\n```\nfield: \"minutes\"\nminutesInterval: 30\n```\n\nLess Frequent (every 6 hours):\n```\nfield: \"hours\"\nhoursInterval: 6\n```\n\nOnce Daily (8am):\n```\nfield: \"cronExpression\"\nexpression: \"0 8 * * *\"\n```\n\n**Monitoring:**\n- Check workflow execution history\n- Review logs for any failures\n- Set up error notifications if needed\n\n**Note:**\nPhase 4 will add Google Apps Script webhook trigger as alternative to schedule (manual trigger option)",
+        "height": 520,
+        "width": 300
+      },
+      "id": "sticky-schedule",
+      "name": "Note - Schedule",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [140, 580]
+    },
+    {
+      "parameters": {
+        "content": "## 📁 FTP - LIST FILES\n\n**Purpose:** Connects to Reynolds FTP server and lists all inventory files\n\n**FTP Server:**\n- Host: ftp.maxdigital.com (from env)\n- Port: 21 (standard FTP)\n- Path: / (root directory)\n- Recursive: false (current dir only)\n\n**Authentication:**\n- Username: 109424_Google (from FTP_USER env)\n- Password: From FTP_PASS env variable\n- Protocol: Standard FTP (not SFTP)\n\n**What It Returns:**\nEach file object includes:\n- `name`: Filename (e.g., \"SWICKARD12U_INV.csv\")\n- `path`: Full path (e.g., \"/SWICKARD12U_INV.csv\")\n- `size`: File size in bytes\n- `type`: \"file\" or \"directory\"\n- `modifyTime`: Last modified timestamp\n\n**Expected Output:**\n- ~150-200 total files on FTP server\n- Mix of inventory files (.csv)\n- Next node filters for *U_INV.csv only\n\n**Troubleshooting:**\n\n**Connection Failed:**\n- Verify FTP_HOST env variable\n- Check firewall/network access\n- Confirm credentials are correct\n\n**Empty Results:**\n- Check FTP path is \"/\"\n- Verify account has list permissions\n- Try from FTP client manually\n\n**Env Variables Required:**\n```\nFTP_HOST=ftp.maxdigital.com\nFTP_USER=109424_Google\nFTP_PASS=nwdngmsS\n```",
+        "height": 600,
+        "width": 300
+      },
+      "id": "sticky-ftp-list",
+      "name": "Note - FTP List",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [340, 580]
+    },
+    {
+      "parameters": {
+        "content": "## 🔍 FILTER CSV FILES\n\n**Purpose:** Filters file list to only Used vehicle inventory files\n\n**Filter Criteria:**\n- Filename ends with: \"U_INV.csv\"\n- Operation: endsWith (case-sensitive)\n- Example matches:\n  - SWICKARD12U_INV.csv ✅\n  - AUDIOAKL01U_INV.csv ✅\n  - MBSEATTL01U_INV.csv ✅\n\n**Files Excluded:**\n- NEW inventory: *N_INV.csv ❌\n- Sprinter: *SPRINTER_INV.csv ❌ (Phase 3 will add)\n- Other formats: *.txt, *.xml ❌\n\n**Expected Results:**\n- Input: ~150-200 files\n- Output: 35 files (Used inventory only)\n- Reduction: ~82% filtered out\n\n**Phase 1 Bug Fix:**\nPreviously filtered for \"U.csv\" which matched 0 files. Now correctly filters for \"U_INV.csv\" which matches 35 files.\n\n**Upcoming Changes (Phase 3):**\nWill be updated to also include Sprinter vehicles:\n```javascript\nendsWith(\"U_INV.csv\") OR \nendsWith(\"SPRINTER_INV.csv\")\n```\nExpected: 37-40 files total\n\n**Node Type:**\n- Type: IF node (conditional filter)\n- Outputs TRUE branch only\n- FALSE branch is discarded\n\n**Troubleshooting:**\n- If 0 matches: Check filter pattern\n- If too many matches: Pattern too broad\n- View execution data to see filtered files",
+        "height": 600,
+        "width": 300
+      },
+      "id": "sticky-filter-csv",
+      "name": "Note - Filter CSV",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [540, 580]
+    },
+    {
+      "parameters": {
+        "content": "## 🔧 CONSTRUCT FTP PATH\n\n**Purpose:** Normalizes file paths for FTP download\n\n**The Problem:**\nFTP List returns paths with leading slash:\n- `/SWICKARD12U_INV.csv`\n- `/AUDIOAKL01U_INV.csv`\n\nFTP Download expects path WITHOUT leading slash:\n- `SWICKARD12U_INV.csv`\n- `AUDIOAKL01U_INV.csv`\n\n**The Solution:**\n```javascript\nlet downloadPath = item.path || item.name;\n\nif (downloadPath.startsWith('/')) {\n  downloadPath = downloadPath.substring(1);\n}\n```\n\n**What It Does:**\n1. Gets path from `item.path` or fallback to `item.name`\n2. Checks if path starts with `/`\n3. Removes leading `/` using substring(1)\n4. Returns normalized path in `downloadPath` field\n5. Preserves original name in `originalName` field\n\n**Output Fields:**\n- `downloadPath`: Normalized path for download\n- `originalName`: Original filename for tracking\n- All original fields preserved\n\n**Phase 1 Bug Fix:**\nThis node was missing in broken versions, causing download failures. Adding it back fixes the issue.\n\n**Execution Mode:**\n- runOnceForEachItem: Processes each file individually\n- 35 executions (one per CSV file)\n\n**Troubleshooting:**\n- If download fails: Check downloadPath format\n- Should NOT start with `/`\n- Should match original filename",
+        "height": 560,
+        "width": 300
+      },
+      "id": "sticky-construct-path",
+      "name": "Note - Construct Path",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [640, 580]
+    },
+    {
+      "parameters": {
+        "content": "## ⬇️ FTP - DOWNLOAD FILE\n\n**Purpose:** Downloads each CSV file from FTP server\n\n**Configuration:**\n- Protocol: FTP (standard)\n- Operation: download\n- Path: From `{{$json.downloadPath}}` (normalized)\n- Binary Property: \"data\"\n\n**Download Process:**\n1. Takes normalized path from previous node\n2. Connects to FTP server\n3. Downloads file as binary data\n4. Stores in `binary.data` property\n5. Preserves all JSON metadata\n\n**File Details:**\n- Count: 35 CSV files\n- Size: ~150-500KB per file\n- Total: ~5-15MB download\n- Format: CSV (comma/pipe delimited)\n- Encoding: UTF-8\n\n**Performance:**\n- Processes files in sequence\n- ~1-2 seconds per file\n- Total download time: ~40-70 seconds\n- Depends on network speed\n\n**Binary Storage Mode:**\nn8n uses filesystem-v2 mode:\n- Binary data stored on disk\n- Not in base64 in JSON\n- Requires `this.helpers.getBinaryDataBuffer()`\n- Next node (Parse CSV) handles this\n\n**Troubleshooting:**\n\n**Download Failed:**\n- Check path format (no leading `/`)\n- Verify FTP credentials\n- Confirm file exists on server\n\n**Binary Data Missing:**\n- Check `binary.data` property exists\n- Verify binaryPropertyName=\"data\"\n- Check file isn't empty\n\n**Timeout:**\n- Increase n8n timeout setting\n- Check network connectivity\n- May need to download in batches",
+        "height": 640,
+        "width": 300
+      },
+      "id": "sticky-ftp-download",
+      "name": "Note - FTP Download",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [840, 580]
+    },
+    {
+      "parameters": {
+        "content": "## 🔄 PARSE CSV TO JSON\n\n**Purpose:** Converts binary CSV files to JSON vehicle objects\n\n**Process:**\n\n**1. Binary Data Handling:**\n```javascript\nconst buffer = await this.helpers\n  .getBinaryDataBuffer(i, 'data');\nconst csvText = buffer.toString('utf-8');\n```\nHandles n8n filesystem-v2 storage mode\n\n**2. CSV Parsing:**\n- Custom parser with quote handling\n- Handles commas inside quoted fields\n- Splits on newlines for rows\n- First row = headers\n\n**3. Object Creation:**\n```javascript\nconst vehicle = {};\nheaders.forEach((header, index) => {\n  vehicle[header] = values[index] || '';\n});\n```\n\n**4. Source Tracking:**\n- Adds `_source_file` field\n- Tracks which CSV each vehicle came from\n- Used for debugging and dealer identification\n\n**Expected Results:**\n- Input: 35 CSV files (binary)\n- Output: ~2,470 vehicle objects (JSON)\n- Avg: ~70 vehicles per file\n- Fields: 30-50 per vehicle\n\n**Common Fields:**\n- Stock, VIN, Year, Make, Model\n- Price_Is, Price_Was, Mileage\n- Title, Description, Photo URLs\n- Dealer info, Condition, etc.\n\n**Execution Mode:**\n- runOnceForAllItems: Batch processing\n- Processes all 35 files at once\n- Returns combined array\n\n**Error Handling:**\n- Skips files with no binary data\n- Skips empty CSV files\n- Continues on parse errors\n- Logs errors to console\n\n**Performance:**\n- Processing: ~2-5 seconds\n- Memory: ~10-20MB\n- Output size: ~50-100MB JSON",
+        "height": 640,
+        "width": 300
+      },
+      "id": "sticky-parse-csv",
+      "name": "Note - Parse CSV",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [940, 580]
+    },
+    {
+      "parameters": {
+        "content": "## 🗑️ CLEAR GOOGLE SHEET\n\n**Purpose:** Clears existing data to ensure true sync (not append)\n\n**Configuration:**\n- Authentication: OAuth2\n- Resource: sheet\n- Operation: clear\n- Document ID: 1PkU3Sh9fgWWaz25OqymT2P_EWzB_UvWghgrizTWjHlA\n- Sheet Name: \"Pre-Owned Specials Automation\"\n\n**What It Does:**\n1. Connects to Google Sheets via OAuth\n2. Finds the specific sheet tab\n3. Clears ALL data in the sheet\n4. Preserves column headers (row 1)\n5. Removes all vehicle rows (row 2+)\n6. Passes through all items to next node\n\n**Why Clear Before Upload:**\n\n**Without Clear (Append Only):**\n- Old vehicles accumulate\n- Sold vehicles still show\n- Duplicates on each run\n- Sheet grows infinitely\n\n**With Clear (True Sync):**\n- Sheet always shows current inventory ✅\n- Sold vehicles removed automatically ✅\n- No duplicates ✅\n- Sheet size stays manageable ✅\n\n**Authentication:**\n- OAuth2 connection required\n- Must authorize Google account\n- Scopes: Google Sheets read/write\n- Token auto-refreshes\n\n**Sheet Structure:**\nAfter clear:\n```\nRow 1: Headers (preserved)\nRow 2+: Empty (ready for new data)\n```\n\n**Execution:**\n- Runs before Append node\n- Takes ~1-2 seconds\n- Passes all ~200-500 items through\n- Data flows to next node unchanged\n\n**Troubleshooting:**\n\n**Auth Error:**\n- Reconnect OAuth2 credential\n- Check account has edit permission\n\n**Sheet Not Found:**\n- Verify Document ID is correct\n- Check sheet name spelling\n\n**Clear Failed:**\n- Check sheet isn't protected\n- Verify permissions",
+        "height": 660,
+        "width": 300
+      },
+      "id": "sticky-clear-sheet",
+      "name": "Note - Clear Sheet",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [1540, 580]
+    },
+    {
+      "parameters": {
+        "content": "## 📊 GOOGLE SHEETS - APPEND DATA\n\n**Purpose:** Uploads filtered vehicle data to Google Sheet\n\n**Configuration:**\n- Authentication: OAuth2\n- Resource: sheet\n- Operation: append\n- Document ID: 1PkU3Sh9fgWWaz25OqymT2P_EWzB_UvWghgrizTWjHlA\n- Sheet Name: \"Pre-Owned Specials Automation\"\n- Mapping: autoMapInputData\n\n**Auto-Mapping:**\n- Automatically matches JSON fields to columns\n- Creates columns if they don't exist\n- Maps by field name (exact match)\n- No manual column configuration needed\n\n**Upload Process:**\n1. Receives ~200-500 vehicle objects\n2. Auto-maps each field to sheet column\n3. Appends rows starting at row 2\n4. Preserves column order from first item\n5. Fills blanks for missing fields\n\n**Expected Data:**\n- Rows: ~200-500 vehicles\n- Columns: 30-50 fields per vehicle\n- Common fields:\n  - Stock, VIN, Year, Make, Model\n  - Price_Is, Price_Was, Mileage\n  - Title, Photos, URLs, etc.\n\n**Upload Speed:**\n- ~200-500 rows in ~3-5 seconds\n- Google Sheets API batch mode\n- Efficient for this volume\n\n**Options:**\n- useAppend: true (append mode)\n- usePathForKeyRow: false (not updating)\n\n**Sheet After Upload:**\n```\nRow 1: Headers (auto-generated)\nRow 2-501: Vehicle data (200-500 rows)\n```\n\n**Phase 2 Enhancement:**\nWill add field transformation node BEFORE this:\n- Map to Customer.io field names\n- Format numbers with commas\n- Clean vehicle names\n- URL cleanup\n\n**Troubleshooting:**\n\n**No Data Uploaded:**\n- Check Clear node passed items through\n- Verify items have data fields\n- Check execution shows ~200-500 items\n\n**Wrong Columns:**\n- Field names don't match expected\n- Phase 2 will standardize this\n\n**API Quota:**\n- 720 runs/month = well within limits\n- Google Sheets: 300 requests/min",
+        "height": 700,
+        "width": 300
+      },
+      "id": "sticky-append-data",
+      "name": "Note - Append Data",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [1740, 580]
+    },
+    {
+      "parameters": {
+        "content": "## 📝 LOG SUCCESS\n\n**Purpose:** Logs completion for monitoring and audit trail\n\n**What It Logs:**\n```javascript\nconst timestamp = new Date().toISOString();\nconst vehicleCount = items.length;\n\nconsole.log(`✅ Successfully synced ${vehicleCount} pre-owned specials at ${timestamp}`);\nconsole.log(`📊 Data uploaded to Google Sheets: Pre-Owned Specials Automation`);\n```\n\n**Log Output Example:**\n```\n✅ Successfully synced 234 pre-owned specials at 2025-01-28T15:00:00.000Z\n📊 Data uploaded to Google Sheets: Pre-Owned Specials Automation\n```\n\n**Why Logging:**\n- Confirms workflow completed\n- Records vehicle count uploaded\n- Timestamps each execution\n- Helps troubleshoot issues\n- Audit trail for compliance\n\n**Where Logs Appear:**\n- n8n execution logs (per run)\n- Workflow execution history\n- Can be exported for analysis\n- Searchable by date/status\n\n**Monitoring Use Cases:**\n\n**Daily Review:**\n- Check vehicle counts are consistent\n- ~200-500 vehicles expected\n- Sudden drop = investigate\n\n**Troubleshooting:**\n- If count is 0: Check filters\n- If count is 2,470: Filters not working\n- If count varies wildly: FTP issues\n\n**Future Enhancements:**\n- Email notifications on failure\n- Slack alerts for anomalies\n- Dashboard with trends\n- Exception reporting\n\n**Data Flow:**\n- Receives all items from Append\n- Logs count and timestamp\n- Returns items unchanged\n- Workflow ends here\n\n**Execution:**\n- Takes <1 second\n- No external API calls\n- Just console logging\n- Always succeeds",
+        "height": 620,
+        "width": 300
+      },
+      "id": "sticky-log-success",
+      "name": "Note - Log Success",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [1940, 580]
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "FTP - List Files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FTP - List Files": {
+      "main": [
+        [
+          {
+            "node": "Filter CSV Files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter CSV Files": {
+      "main": [
+        [
+          {
+            "node": "Construct FTP Path",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Construct FTP Path": {
+      "main": [
+        [
+          {
+            "node": "FTP - Download File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FTP - Download File": {
+      "main": [
+        [
+          {
+            "node": "Parse CSV to JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse CSV to JSON": {
+      "main": [
+        [
+          {
+            "node": "Filter Pre-Owned Specials",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Pre-Owned Specials": {
+      "main": [
+        [
+          {
+            "node": "Filter by Stock List",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter by Stock List": {
+      "main": [
+        [
+          {
+            "node": "Clear Google Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clear Google Sheet": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets - Append Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets - Append Data": {
+      "main": [
+        [
+          {
+            "node": "Log Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "errorWorkflow": ""
+  },
+  "staticData": null,
+  "pinData": {},
+  "versionId": "1.0.0",
+  "triggerCount": 1,
+  "active": false
+}

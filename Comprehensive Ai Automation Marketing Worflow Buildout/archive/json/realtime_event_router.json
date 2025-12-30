@@ -1,0 +1,115 @@
+{
+  "name": "Realtime Event Router",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "path": "events/inbound",
+        "httpMethod": "POST",
+        "responseMode": "onReceived",
+        "responseCode": 200
+      },
+      "id": "Inbound Webhook",
+      "name": "Inbound Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [260, 200]
+    },
+    {
+      "parameters": {
+        "workflowId": "Consent-Gate"
+      },
+      "id": "Consent Gate",
+      "name": "Consent Gate",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [480, 200]
+    },
+    {
+      "parameters": {
+        "mode": "expression",
+        "numberOutputs": 3,
+        "output": "={{ $json.event_name === 'master_schedule_test_drive' ? 0 : ($json.event_name === 'master_text_for_price' ? 1 : 2) }}"
+      },
+      "id": "Route by Event",
+      "name": "Route by Event",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [700, 200]
+    },
+    {
+      "parameters": {
+        "from": "={{$credentials.twilioFrom}}",
+        "to": "={{$json.phone}}",
+        "message": "Your test drive is scheduled for {{ $json.preferred_date }}. Reply STOP to opt out."
+      },
+      "id": "Twilio SMS",
+      "name": "Twilio SMS",
+      "type": "n8n-nodes-base.twilio",
+      "typeVersion": 2,
+      "position": [940, 140]
+    },
+    {
+      "parameters": {
+        "method": "PUT",
+        "url": "https://track.customer.io/api/v1/customers/{{$json.contactId}}",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{$json}}"
+      },
+      "id": "Customer.io Upsert",
+      "name": "Customer.io Upsert (HTTP)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [940, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://example-crm.local/api/leads",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{$json}}",
+        "authentication": "oAuth2"
+      },
+      "id": "CRM Create Lead",
+      "name": "CRM Create Lead",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [940, 260]
+    },
+    {
+      "parameters": {
+        "resource": "database",
+        "operation": "insert",
+        "projectId": "YOUR_PROJECT_ID",
+        "datasetId": "audit",
+        "tableId": "events",
+        "rows": "={{ $items().map(i => ({ action: i.json.event_name, subjectId: i.json.contactId, ts: new Date().toISOString(), payloadHash: $crypto.sha256(JSON.stringify(i.json)) })) }}"
+      },
+      "id": "Audit Log",
+      "name": "Audit Log",
+      "type": "n8n-nodes-base.googleBigQuery",
+      "typeVersion": 2,
+      "position": [1200, 200]
+    }
+  ],
+  "connections": {
+    "Inbound Webhook": { "main": [[{ "node": "Consent Gate", "type": "main", "index": 0 }]] },
+    "Consent Gate": { "main": [[{ "node": "Route by Event", "type": "main", "index": 0 }]] },
+    "Route by Event": {
+      "main": [
+        [{ "node": "Twilio SMS", "type": "main", "index": 0 }],
+        [{ "node": "Customer.io Upsert (HTTP)", "type": "main", "index": 0 }],
+        [{ "node": "CRM Create Lead", "type": "main", "index": 0 }]
+      ]
+    },
+    "Twilio SMS": { "main": [[{ "node": "Audit Log", "type": "main", "index": 0 }]] },
+    "Customer.io Upsert (HTTP)": { "main": [[{ "node": "Audit Log", "type": "main", "index": 0 }]] },
+    "CRM Create Lead": { "main": [[{ "node": "Audit Log", "type": "main", "index": 0 }]] }
+  }
+}
+
+

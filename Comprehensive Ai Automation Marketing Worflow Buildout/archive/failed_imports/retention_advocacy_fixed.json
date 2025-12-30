@@ -1,0 +1,720 @@
+{
+  "name": "Retention & Advocacy Stage - Customer.io Integration",
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "error_handler"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "triggerTimes": {
+          "item": [
+            {
+              "hour": 10,
+              "minute": 0
+            }
+          ]
+        },
+        "timezone": "America/New_York"
+      },
+      "id": "cron-trigger",
+      "name": "Daily Retention Check",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [260, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT c.user_id, c.email, c.phone, c.first_name, c.last_name, c.purchase_date, c.vehicle_model, c.last_service_date, c.next_service_date, c.total_spend, c.loyalty_points, c.satisfaction_score, c.referral_count, CASE WHEN c.last_service_date < DATE_SUB(CURRENT_DATE(), INTERVAL 6 MONTH) THEN 'dormant' WHEN c.next_service_date <= DATE_ADD(CURRENT_DATE(), INTERVAL 30 DAY) THEN 'service_due' WHEN c.purchase_date <= DATE_SUB(CURRENT_DATE(), INTERVAL 36 MONTH) THEN 'lease_end' WHEN c.satisfaction_score >= 9 THEN 'advocate' WHEN c.satisfaction_score <= 6 THEN 'dissatisfied' WHEN c.total_spend >= 5000 THEN 'high_spend' WHEN c.referral_count > 0 THEN 'referral' WHEN DATE_DIFF(CURRENT_DATE(), c.purchase_date, DAY) <= 90 THEN 'new_owner' ELSE 'active' END as customer_segment FROM `project.dataset.customers` c WHERE c.status = 'active' AND c.opt_out = FALSE",
+        "options": {}
+      },
+      "id": "bigquery-fetch",
+      "name": "Fetch Retention Candidates",
+      "type": "n8n-nodes-base.googleBigQuery",
+      "typeVersion": 2,
+      "position": [460, 300],
+      "credentials": {
+        "googleBigQueryOAuth2Api": {
+          "id": "1",
+          "name": "BigQuery OAuth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "batchSize": 100,
+        "options": {}
+      },
+      "id": "batch-processor",
+      "name": "Process in Batches",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [660, 300]
+    },
+    {
+      "parameters": {
+        "resource": "customer",
+        "operation": "upsert",
+        "id": "={{ $json.user_id }}",
+        "email": "={{ $json.email }}",
+        "additionalFields": {
+          "customAttributes": {
+            "attribute": [
+              {
+                "key": "journey_stage",
+                "value": "retention_advocacy"
+              },
+              {
+                "key": "customer_segment",
+                "value": "={{ $json.customer_segment }}"
+              },
+              {
+                "key": "purchase_date",
+                "value": "={{ $json.purchase_date }}"
+              },
+              {
+                "key": "vehicle_model",
+                "value": "={{ $json.vehicle_model }}"
+              },
+              {
+                "key": "last_service_date",
+                "value": "={{ $json.last_service_date }}"
+              },
+              {
+                "key": "next_service_date",
+                "value": "={{ $json.next_service_date }}"
+              },
+              {
+                "key": "total_spend",
+                "value": "={{ $json.total_spend }}"
+              },
+              {
+                "key": "loyalty_points",
+                "value": "={{ $json.loyalty_points }}"
+              },
+              {
+                "key": "satisfaction_score",
+                "value": "={{ $json.satisfaction_score }}"
+              },
+              {
+                "key": "referral_count",
+                "value": "={{ $json.referral_count }}"
+              },
+              {
+                "key": "last_retention_check",
+                "value": "={{ $now.toISO() }}"
+              }
+            ]
+          }
+        }
+      },
+      "id": "customerio-update",
+      "name": "Update Customer.io Profiles",
+      "type": "n8n-nodes-base.customerIo",
+      "typeVersion": 1,
+      "position": [860, 300],
+      "credentials": {
+        "customerIoApi": {
+          "id": "2",
+          "name": "Customer.io API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "expression",
+        "value1": "={{ $json.customer_segment }}",
+        "rules": {
+          "rules": [
+            {
+              "value2": "service_due",
+              "output": 0
+            },
+            {
+              "value2": "dormant",
+              "output": 1
+            },
+            {
+              "value2": "lease_end",
+              "output": 2
+            },
+            {
+              "value2": "advocate",
+              "output": 3
+            },
+            {
+              "value2": "dissatisfied",
+              "output": 4
+            },
+            {
+              "value2": "high_spend",
+              "output": 5
+            },
+            {
+              "value2": "new_owner",
+              "output": 6
+            },
+            {
+              "value2": "referral",
+              "output": 7
+            }
+          ]
+        },
+        "fallbackOutput": 8
+      },
+      "id": "segment-router",
+      "name": "Route by Segment",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1060, 300]
+    },
+    {
+      "parameters": {
+        "resource": "segment",
+        "operation": "add",
+        "segmentId": "service_due_customers",
+        "identifiers": [
+          {
+            "identifier": "id",
+            "value": "={{ $json.user_id }}"
+          }
+        ]
+      },
+      "id": "service-segment",
+      "name": "Add to Service Due",
+      "type": "n8n-nodes-base.customerIo",
+      "typeVersion": 1,
+      "position": [1300, 100],
+      "credentials": {
+        "customerIoApi": {
+          "id": "2",
+          "name": "Customer.io API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "segment",
+        "operation": "add",
+        "segmentId": "dormant_customers",
+        "identifiers": [
+          {
+            "identifier": "id",
+            "value": "={{ $json.user_id }}"
+          }
+        ]
+      },
+      "id": "dormant-segment",
+      "name": "Add to Dormant",
+      "type": "n8n-nodes-base.customerIo",
+      "typeVersion": 1,
+      "position": [1300, 200],
+      "credentials": {
+        "customerIoApi": {
+          "id": "2",
+          "name": "Customer.io API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "segment",
+        "operation": "add",
+        "segmentId": "lease_end_customers",
+        "identifiers": [
+          {
+            "identifier": "id",
+            "value": "={{ $json.user_id }}"
+          }
+        ]
+      },
+      "id": "lease-segment",
+      "name": "Add to Lease End",
+      "type": "n8n-nodes-base.customerIo",
+      "typeVersion": 1,
+      "position": [1300, 300],
+      "credentials": {
+        "customerIoApi": {
+          "id": "2",
+          "name": "Customer.io API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "segment",
+        "operation": "add",
+        "segmentId": "satisfied_advocates",
+        "identifiers": [
+          {
+            "identifier": "id",
+            "value": "={{ $json.user_id }}"
+          }
+        ]
+      },
+      "id": "advocate-segment",
+      "name": "Add to Advocates",
+      "type": "n8n-nodes-base.customerIo",
+      "typeVersion": 1,
+      "position": [1300, 400],
+      "credentials": {
+        "customerIoApi": {
+          "id": "2",
+          "name": "Customer.io API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "segment",
+        "operation": "add",
+        "segmentId": "dissatisfied_customers",
+        "identifiers": [
+          {
+            "identifier": "id",
+            "value": "={{ $json.user_id }}"
+          }
+        ]
+      },
+      "id": "dissatisfied-segment",
+      "name": "Add to Dissatisfied",
+      "type": "n8n-nodes-base.customerIo",
+      "typeVersion": 1,
+      "position": [1300, 500],
+      "credentials": {
+        "customerIoApi": {
+          "id": "2",
+          "name": "Customer.io API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "event",
+        "operation": "track",
+        "customerId": "={{ $json.user_id }}",
+        "eventName": "retention_campaign_triggered",
+        "additionalFields": {
+          "data": {
+            "dataProperty": [
+              {
+                "key": "segment",
+                "value": "={{ $json.customer_segment }}"
+              },
+              {
+                "key": "campaign_type",
+                "value": "={{ $json.customer_segment === 'service_due' ? 'service_reminder' : $json.customer_segment === 'dormant' ? 'win_back' : $json.customer_segment === 'lease_end' ? 'lease_renewal' : $json.customer_segment === 'advocate' ? 'referral_program' : $json.customer_segment === 'dissatisfied' ? 'service_recovery' : 'retention_general' }}"
+              },
+              {
+                "key": "next_service_date",
+                "value": "={{ $json.next_service_date }}"
+              },
+              {
+                "key": "loyalty_points",
+                "value": "={{ $json.loyalty_points }}"
+              },
+              {
+                "key": "special_offer",
+                "value": "={{ $json.customer_segment === 'advocate' ? '100_off_review' : $json.customer_segment === 'dormant' ? '20_percent_service' : 'standard' }}"
+              }
+            ]
+          }
+        }
+      },
+      "id": "track-campaign",
+      "name": "Track Campaign Event",
+      "type": "n8n-nodes-base.customerIo",
+      "typeVersion": 1,
+      "position": [1500, 300],
+      "credentials": {
+        "customerIoApi": {
+          "id": "2",
+          "name": "Customer.io API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "high-priority",
+              "leftValue": "={{ $json.customer_segment }}",
+              "rightValue": "={{ ['service_due', 'lease_end', 'dissatisfied'].includes($json.customer_segment) }}",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "priority-check",
+      "name": "Check Priority Segment",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1700, 300]
+    },
+    {
+      "parameters": {
+        "from": "={{ $credentials.twilioFrom }}",
+        "to": "={{ $json.phone }}",
+        "message": "={{ $json.customer_segment === 'service_due' ? 'Hi ' + $json.first_name + ', your ' + $json.vehicle_model + ' service is due on ' + $json.next_service_date + '. Book now for 10% off. Reply YES to schedule.' : $json.customer_segment === 'lease_end' ? 'Hi ' + $json.first_name + ', your lease ends soon! Exclusive renewal offers available. Reply INFO for details.' : $json.customer_segment === 'dissatisfied' ? 'Hi ' + $json.first_name + ', we value your feedback. Our manager would like to personally address your concerns. Reply CALL for a callback.' : 'Thank you for being a valued Swickard customer!' }}"
+      },
+      "id": "twilio-sms",
+      "name": "Send Priority SMS",
+      "type": "n8n-nodes-base.twilio",
+      "typeVersion": 2,
+      "position": [1900, 250],
+      "credentials": {
+        "twilioApi": {
+          "id": "5",
+          "name": "Twilio API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO `project.dataset.retention_campaigns` (user_id, email, customer_segment, campaign_type, campaign_triggered_at, next_service_date, loyalty_points, satisfaction_score, special_offer) VALUES ('{{ $json.user_id }}', '{{ $json.email }}', '{{ $json.customer_segment }}', '{{ $json.customer_segment === 'service_due' ? 'service_reminder' : $json.customer_segment === 'dormant' ? 'win_back' : $json.customer_segment === 'lease_end' ? 'lease_renewal' : $json.customer_segment === 'advocate' ? 'referral_program' : $json.customer_segment === 'dissatisfied' ? 'service_recovery' : 'retention_general' }}', '{{ $now.toISO() }}', '{{ $json.next_service_date }}', {{ $json.loyalty_points || 0 }}, {{ $json.satisfaction_score || 0 }}, '{{ $json.customer_segment === 'advocate' ? '100_off_review' : $json.customer_segment === 'dormant' ? '20_percent_service' : 'standard' }}')",
+        "options": {}
+      },
+      "id": "bigquery-log",
+      "name": "Log Campaign to BigQuery",
+      "type": "n8n-nodes-base.googleBigQuery",
+      "typeVersion": 2,
+      "position": [1900, 400],
+      "credentials": {
+        "googleBigQueryOAuth2Api": {
+          "id": "1",
+          "name": "BigQuery OAuth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// JOMP Analysis for retention optimization\nconst segments = {};\nconst timestamp = new Date().toISOString();\n\n// Count segments\nfor (const item of $input.all()) {\n  const segment = item.json.customer_segment;\n  if (!segments[segment]) {\n    segments[segment] = {\n      count: 0,\n      total_spend: 0,\n      avg_satisfaction: 0,\n      referrals: 0\n    };\n  }\n  segments[segment].count++;\n  segments[segment].total_spend += item.json.total_spend || 0;\n  segments[segment].avg_satisfaction += item.json.satisfaction_score || 0;\n  segments[segment].referrals += item.json.referral_count || 0;\n}\n\n// Calculate averages\nfor (const seg in segments) {\n  if (segments[seg].count > 0) {\n    segments[seg].avg_satisfaction = segments[seg].avg_satisfaction / segments[seg].count;\n  }\n}\n\nreturn [{\n  json: {\n    timestamp,\n    total_processed: $input.all().length,\n    segments,\n    high_priority_count: ['service_due', 'lease_end', 'dissatisfied']\n      .reduce((sum, seg) => sum + (segments[seg]?.count || 0), 0),\n    advocacy_potential: segments['advocate']?.count || 0,\n    win_back_opportunities: segments['dormant']?.count || 0\n  }\n}];"
+      },
+      "id": "jomp-analysis",
+      "name": "JOMP Retention Analysis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2100, 300]
+    },
+    {
+      "parameters": {
+        "resource": "event",
+        "operation": "trackAnonymous",
+        "eventName": "retention_daily_summary",
+        "additionalFields": {
+          "data": {
+            "dataProperty": [
+              {
+                "key": "total_processed",
+                "value": "={{ $json.total_processed }}"
+              },
+              {
+                "key": "high_priority_count",
+                "value": "={{ $json.high_priority_count }}"
+              },
+              {
+                "key": "advocacy_potential",
+                "value": "={{ $json.advocacy_potential }}"
+              },
+              {
+                "key": "win_back_opportunities",
+                "value": "={{ $json.win_back_opportunities }}"
+              },
+              {
+                "key": "segment_breakdown",
+                "value": "={{ JSON.stringify($json.segments) }}"
+              },
+              {
+                "key": "run_timestamp",
+                "value": "={{ $json.timestamp }}"
+              }
+            ]
+          }
+        }
+      },
+      "id": "customerio-summary",
+      "name": "Send JOMP Summary",
+      "type": "n8n-nodes-base.customerIo",
+      "typeVersion": 1,
+      "position": [2300, 300],
+      "credentials": {
+        "customerIoApi": {
+          "id": "2",
+          "name": "Customer.io API"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Daily Retention Check": {
+      "main": [
+        [
+          {
+            "node": "Fetch Retention Candidates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Retention Candidates": {
+      "main": [
+        [
+          {
+            "node": "Process in Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process in Batches": {
+      "main": [
+        [
+          {
+            "node": "Update Customer.io Profiles",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "JOMP Retention Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Customer.io Profiles": {
+      "main": [
+        [
+          {
+            "node": "Route by Segment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Segment": {
+      "main": [
+        [
+          {
+            "node": "Add to Service Due",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Add to Dormant",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Add to Lease End",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Add to Advocates",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Add to Dissatisfied",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Track Campaign Event",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Track Campaign Event",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Track Campaign Event",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Track Campaign Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add to Service Due": {
+      "main": [
+        [
+          {
+            "node": "Track Campaign Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add to Dormant": {
+      "main": [
+        [
+          {
+            "node": "Track Campaign Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add to Lease End": {
+      "main": [
+        [
+          {
+            "node": "Track Campaign Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add to Advocates": {
+      "main": [
+        [
+          {
+            "node": "Track Campaign Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add to Dissatisfied": {
+      "main": [
+        [
+          {
+            "node": "Track Campaign Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Track Campaign Event": {
+      "main": [
+        [
+          {
+            "node": "Check Priority Segment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Priority Segment": {
+      "main": [
+        [
+          {
+            "node": "Send Priority SMS",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Campaign to BigQuery",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Priority SMS": {
+      "main": [
+        [
+          {
+            "node": "Log Campaign to BigQuery",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Campaign to BigQuery": {
+      "main": [
+        [
+          {
+            "node": "Process in Batches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "JOMP Retention Analysis": {
+      "main": [
+        [
+          {
+            "node": "Send JOMP Summary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "id": "1",
+      "name": "retention"
+    },
+    {
+      "id": "2",
+      "name": "advocacy"
+    },
+    {
+      "id": "3",
+      "name": "customer.io"
+    },
+    {
+      "id": "4",
+      "name": "jomp"
+    }
+  ],
+  "triggerCount": 0,
+  "updatedAt": "2025-08-07T10:00:00.000Z",
+  "versionId": "v1"
+}

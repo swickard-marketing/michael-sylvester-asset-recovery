@@ -1,0 +1,88 @@
+{
+  "name": "Consideration Nurture (Batch)",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "triggerTimes": {
+          "item": [ { "hour": 9, "minute": 0 } ],
+          "timezone": "America/New_York"
+        }
+      },
+      "id": "Cron",
+      "name": "Cron",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [260, 180]
+    },
+    {
+      "parameters": {
+        "operation": "runQuery",
+        "query": "SELECT contactId, email, segment FROM marketing.consideration_segments WHERE eligible = TRUE AND last_sent < TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 7 DAY) LIMIT 1000",
+        "additionalFields": { "useLegacySql": false }
+      },
+      "id": "BigQuery Segment",
+      "name": "BigQuery Segment",
+      "type": "n8n-nodes-base.googleBigQuery",
+      "typeVersion": 2,
+      "position": [480, 180]
+    },
+    {
+      "parameters": {
+        "batchSize": 200,
+        "options": { "reset": false }
+      },
+      "id": "Split in Batches",
+      "name": "Split in Batches",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 1,
+      "position": [700, 180]
+    },
+    {
+      "parameters": {
+        "workflowId": "Consent-Gate"
+      },
+      "id": "Consent Gate",
+      "name": "Consent Gate",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [920, 180]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.customer.io/v1/campaigns/YOUR_BROADCAST_ID/triggers",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"recipients\": [$json.email],\n  \"data\": { \"segment\": $json.segment }\n}"
+      },
+      "id": "CIO Broadcast",
+      "name": "CIO Broadcast (HTTP)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1140, 160]
+    },
+    {
+      "parameters": {
+        "operation": "runQuery",
+        "query": "={{ `UPDATE marketing.consideration_segments SET last_sent = CURRENT_TIMESTAMP() WHERE contactId = '${$json.contactId}'` }}",
+        "additionalFields": { "useLegacySql": false }
+      },
+      "id": "Mark Sent",
+      "name": "Mark Sent",
+      "type": "n8n-nodes-base.googleBigQuery",
+      "typeVersion": 2,
+      "position": [1360, 200]
+    }
+  ],
+  "connections": {
+    "Cron": { "main": [[{ "node": "BigQuery Segment", "type": "main", "index": 0 }]] },
+    "BigQuery Segment": { "main": [[{ "node": "Split in Batches", "type": "main", "index": 0 }]] },
+    "Split in Batches": { "main": [[{ "node": "Consent Gate", "type": "main", "index": 0 }], [{ "node": "Split in Batches", "type": "main", "index": 0 }]] },
+    "Consent Gate": { "main": [[{ "node": "CIO Broadcast (HTTP)", "type": "main", "index": 0 }]] },
+    "CIO Broadcast (HTTP)": { "main": [[{ "node": "Mark Sent", "type": "main", "index": 0 }]] }
+  }
+}
+
+

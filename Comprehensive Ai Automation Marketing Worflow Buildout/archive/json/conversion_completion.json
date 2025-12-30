@@ -1,0 +1,19 @@
+{
+  "name": "Conversion Completion",
+  "active": false,
+  "nodes": [
+    { "parameters": { "path": "events/conversion", "httpMethod": "POST", "responseMode": "onReceived" }, "id": "Webhook", "name": "Conversion Webhook", "type": "n8n-nodes-base.webhook", "typeVersion": 1, "position": [260, 200] },
+    { "parameters": { "functionCode": "// Simple lead scoring example based on event details\nconst e = $json;\nlet score = 0;\nif (e.event_name === 'lead_form_submitted') score += 40;\nif (e.event_name === 'test_drive_scheduled') score += 50;\nif ((e.pages_viewed||0) > 5) score += 10;\nreturn [{ json: { ...e, lead_score: score } }];" }, "id": "Score", "name": "Lead Scoring", "type": "n8n-nodes-base.function", "typeVersion": 2, "position": [480, 200] },
+    { "parameters": { "resource": "database", "operation":"insert", "projectId": "YOUR_PROJECT_ID", "datasetId":"marketing", "tableId":"conversion_events", "rows": "={{$items().map(i=>i.json)}}" }, "id":"BQ Log", "name":"BigQuery Log", "type":"n8n-nodes-base.googleBigQuery", "typeVersion":2, "position":[700,200] },
+    { "parameters": { "resource": "database", "operation":"insert", "projectId": "YOUR_PROJECT_ID", "datasetId":"marketing", "tableId":"frequency_caps", "rows": "={{$items().map(i=>({contactId: i.json.contactId, channel: 'retargeting', cap: i.json.lead_score > 70 ? 'low' : i.json.lead_score > 40 ? 'medium' : 'high', ts: new Date().toISOString()}))}}" }, "id":"Caps", "name":"Write Frequency Cap", "type":"n8n-nodes-base.googleBigQuery", "typeVersion":2, "position":[920,200] },
+    { "parameters": { "authentication":"oAuth2", "url":"https://crm.local/api/leads/{{ $json.leadId }}", "options": {"bodyContentType":"json"}, "jsonParameters": true, "sendBody": true }, "id":"CRM Update", "name":"CRM Update Lead", "type":"n8n-nodes-base.httpRequest", "typeVersion":4, "position":[1140,200] }
+  ],
+  "connections": {
+    "Conversion Webhook": { "main": [[{ "node": "Lead Scoring", "type": "main", "index": 0 }]] },
+    "Lead Scoring": { "main": [[{ "node": "BigQuery Log", "type": "main", "index": 0 }]] },
+    "BigQuery Log": { "main": [[{ "node": "Write Frequency Cap", "type": "main", "index": 0 }]] },
+    "Write Frequency Cap": { "main": [[{ "node": "CRM Update Lead", "type": "main", "index": 0 }]] }
+  }
+}
+
+

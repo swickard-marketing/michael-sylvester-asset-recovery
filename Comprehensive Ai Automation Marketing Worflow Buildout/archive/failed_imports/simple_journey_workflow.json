@@ -1,0 +1,127 @@
+{
+  "name": "Customer Journey Automation",
+  "nodes": [
+    {
+      "parameters": {
+        "triggerTimes": {
+          "item": [
+            {
+              "hour": 9,
+              "minute": 0
+            }
+          ]
+        }
+      },
+      "id": "e8b4a5c7",
+      "name": "Schedule",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT user_id, email, page_time_spent, viewed_financing_options, form_submitted FROM `project.dataset.user_behavior` WHERE page_time_spent > 30",
+        "options": {}
+      },
+      "id": "f9d2e3a1",
+      "name": "BigQuery",
+      "type": "n8n-nodes-base.googleBigQuery",
+      "typeVersion": 2,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "const items = [];\nfor (const item of $input.all()) {\n  const data = item.json;\n  let score = 0;\n  \n  if (data.page_time_spent > 180) score = 80;\n  else if (data.page_time_spent > 60) score = 50;\n  else score = 30;\n  \n  if (data.viewed_financing_options) score += 20;\n  \n  items.push({\n    json: {\n      ...data,\n      intent_score: score,\n      intent_level: score >= 70 ? 'high' : score >= 50 ? 'medium' : 'low'\n    }\n  });\n}\nreturn items;"
+      },
+      "id": "a3b4c5d6",
+      "name": "Score",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "resource": "customer",
+        "operation": "upsert",
+        "id": "={{ $json.user_id }}",
+        "email": "={{ $json.email }}",
+        "additionalFields": {}
+      },
+      "id": "b4c5d6e7",
+      "name": "CustomerIO",
+      "type": "n8n-nodes-base.customerIo",
+      "typeVersion": 1,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "status",
+              "value": "processed"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c5d6e7f8",
+      "name": "Set Status",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [1050, 300]
+    }
+  ],
+  "connections": {
+    "Schedule": {
+      "main": [
+        [
+          {
+            "node": "BigQuery",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BigQuery": {
+      "main": [
+        [
+          {
+            "node": "Score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score": {
+      "main": [
+        [
+          {
+            "node": "CustomerIO",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CustomerIO": {
+      "main": [
+        [
+          {
+            "node": "Set Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {},
+  "versionId": "abc123",
+  "id": "workflow001",
+  "tags": []
+}

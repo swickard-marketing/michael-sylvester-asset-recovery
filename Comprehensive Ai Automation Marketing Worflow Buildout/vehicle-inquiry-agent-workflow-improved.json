@@ -1,0 +1,435 @@
+{
+  "name": "Vehicle Inquiry Agent - Improved (Native Nodes)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "vehicle-inquiry-trigger",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "",
+          "rawBody": false
+        }
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook - Widget Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [250, 300],
+      "webhookId": "vehicle-inquiry-webhook",
+      "notes": "TRIGGER NODE - Website Widget\n\nReceives webhook when customer clicks 'Unlock Price' and opts in for SMS.\n\nIMPROVEMENTS:\n- Set allowedOrigins to your domain for security\n- Uses typeVersion 2 for better error handling\n\nExpected payload:\n{\n  \"vehicleId\": \"string\",\n  \"vehicleMake\": \"string\",\n  \"vehicleModel\": \"string\",\n  \"vehicleYear\": \"string\",\n  \"vehiclePrice\": \"string\",\n  \"vehicleStatus\": \"available|sold|pending\",\n  \"customerPhone\": \"string (E.164: +1234567890)\",\n  \"customerName\": \"string (optional)\",\n  \"dealershipId\": \"string\",\n  \"dealershipName\": \"string\",\n  \"timestamp\": \"ISO 8601\"\n}"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.body.customerPhone }}",
+              "operation": "isNotEmpty"
+            },
+            {
+              "value1": "={{ $json.body.vehicleId }}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      },
+      "id": "validate-input",
+      "name": "Validate Required Fields",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [450, 300],
+      "notes": "VALIDATION NODE\n\nValidates required fields:\n- customerPhone (E.164 format)\n- vehicleId\n\nTrue: Continue to agent setup\nFalse: Return 400 error"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"success\": false, \"error\": \"Missing required fields: customerPhone or vehicleId\" } }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "error-response",
+      "name": "Error Response - Missing Fields",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [650, 450],
+      "notes": "ERROR RESPONSE\n\nReturns 400 Bad Request to widget.\nWidget should display user-friendly error."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract and prepare data for the AI agent\nconst vehicleData = $input.item.json.body;\n\n// Build vehicle context\nconst vehicleContext = {\n  vehicleId: vehicleData.vehicleId,\n  vehicleName: `${vehicleData.vehicleYear} ${vehicleData.vehicleMake} ${vehicleData.vehicleModel}`,\n  year: vehicleData.vehicleYear,\n  make: vehicleData.vehicleMake,\n  model: vehicleData.vehicleModel,\n  price: vehicleData.vehiclePrice,\n  status: vehicleData.vehicleStatus || 'available',\n  dealership: vehicleData.dealershipName,\n  dealershipId: vehicleData.dealershipId\n};\n\n// Customer context\nconst customerContext = {\n  phone: vehicleData.customerPhone,\n  name: vehicleData.customerName || 'Customer',\n  timestamp: vehicleData.timestamp || new Date().toISOString()\n};\n\n// Build system prompt for AI agent\nconst systemPrompt = `You are a helpful vehicle sales assistant for ${vehicleContext.dealership}.\n\nYour role:\n1. Assist customers with inquiries about vehicles\n2. Provide the 'unlocked price' for vehicles they're interested in\n3. Check vehicle availability\n4. Recommend alternative vehicles if unavailable\n5. Gather customer information for sales team follow-up\n6. Be friendly, professional, and concise (SMS format)\n\nCurrent Vehicle Context:\n- Customer interested in: ${vehicleContext.vehicleName}\n- Vehicle ID: ${vehicleContext.vehicleId}\n- Listed Price: ${vehicleContext.price}\n- Status: ${vehicleContext.status}\n\nGuidelines:\n- Keep responses SHORT (SMS format, under 160 chars when possible)\n- Be helpful and enthusiastic\n- If vehicle unavailable, offer to find alternatives\n- Collect: customer name, preferred contact method, best time to call\n- At the end, confirm sales specialist will follow up`;\n\nconst initialMessage = `Hi ${customerContext.name}! Thanks for your interest in the ${vehicleContext.vehicleName}. I can help you with details and pricing. What would you like to know?`;\n\n// Create conversation tracking\nconst conversationData = {\n  conversationId: `conv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,\n  vehicleContext: vehicleContext,\n  customerContext: customerContext,\n  systemPrompt: systemPrompt,\n  initialMessage: initialMessage,\n  timestamp: new Date().toISOString()\n};\n\nreturn { json: conversationData };"
+      },
+      "id": "prepare-agent-context",
+      "name": "Prepare Agent Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [650, 300],
+      "notes": "CONTEXT PREPARATION\n\nBuilds comprehensive context for AI agent:\n- Vehicle details (make, model, year, price, status)\n- Customer info (phone, name)\n- System prompt with instructions\n- Initial greeting message\n- Conversation tracking ID"
+    },
+    {
+      "parameters": {
+        "resource": "sms",
+        "operation": "send",
+        "from": "={{ $env.TWILIO_PHONE_NUMBER }}",
+        "to": "={{ $json.customerContext.phone }}",
+        "message": "={{ $json.initialMessage }}"
+      },
+      "id": "send-initial-sms",
+      "name": "Send Initial SMS (Twilio)",
+      "type": "n8n-nodes-base.twilio",
+      "typeVersion": 2,
+      "position": [850, 300],
+      "credentials": {
+        "twilioApi": {
+          "id": "1",
+          "name": "Twilio account"
+        }
+      },
+      "notes": "NATIVE TWILIO NODE - Initial SMS\n\nIMPROVEMENT: Uses native Twilio node instead of HTTP Request\n\nBenefits:\n- Simpler configuration\n- Built-in error handling\n- Automatic credential management\n- Better n8n integration\n\nSends greeting:\n'Hi [Name]! Thanks for your interest in the [Vehicle].'\n\nRequired:\n- TWILIO_PHONE_NUMBER env variable\n- Twilio credentials configured in n8n"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"success\": true, \"message\": \"SMS sent successfully\", \"conversationId\": $json.conversationId } }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "success-response-webhook",
+      "name": "Success Response to Widget",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1050, 300],
+      "notes": "SUCCESS RESPONSE\n\nReturns to widget:\n{\n  \"success\": true,\n  \"message\": \"SMS sent successfully\",\n  \"conversationId\": \"conv_xxx\"\n}\n\nWidget displays:\n'Great! Check your phone to continue.'"
+    },
+    {
+      "parameters": {
+        "updates": ["com.twilio.messaging.inbound-message.received"]
+      },
+      "id": "twilio-inbound-trigger",
+      "name": "Twilio Inbound SMS Trigger",
+      "type": "n8n-nodes-base.twilioTrigger",
+      "typeVersion": 1.1,
+      "position": [250, 650],
+      "credentials": {
+        "twilioApi": {
+          "id": "1",
+          "name": "Twilio account"
+        }
+      },
+      "webhookId": "twilio-inbound-sms",
+      "notes": "NATIVE TWILIO TRIGGER NODE\n\nIMPROVEMENT: Uses native Twilio Trigger instead of generic webhook\n\nBenefits:\n- Automatic Twilio webhook configuration\n- Built-in payload parsing\n- Native Twilio event handling\n- Signature verification\n\nTriggers on: New SMS received\n\nSetup:\n1. Configure Twilio credentials in n8n\n2. Activate workflow\n3. n8n automatically configures Twilio webhook\n\nPayload includes:\n- From (customer phone)\n- To (Twilio number)\n- Body (message text)\n- MessageSid (unique ID)"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract incoming SMS data from Twilio Trigger\nconst twilioData = $input.item.json;\n\nconst inboundSMS = {\n  customerPhone: twilioData.From,\n  customerMessage: twilioData.Body,\n  twilioMessageSid: twilioData.MessageSid,\n  twilioNumber: twilioData.To,\n  timestamp: new Date().toISOString()\n};\n\n// TODO: In production, retrieve conversation history from database\n// For now, starting fresh conversation each time\ninboundSMS.needsConversationLookup = true;\n\nreturn { json: inboundSMS };"
+      },
+      "id": "parse-inbound-sms",
+      "name": "Parse Inbound SMS",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [450, 650],
+      "notes": "PARSE INBOUND SMS\n\nExtracts customer message from Twilio trigger.\n\nTODO - Conversation Persistence:\nImplement database lookup:\n1. Query by phone number\n2. Retrieve conversation history\n3. Load vehicle context\n4. Pass to AI Agent\n\nRecommended:\n- PostgreSQL for conversation storage\n- Redis for fast cache\n- 30-minute timeout for inactive conversations"
+    },
+    {
+      "parameters": {
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "anthropicApi",
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-api-key",
+              "value": "={{ $credentials.apiKey }}"
+            },
+            {
+              "name": "anthropic-version",
+              "value": "2023-06-01"
+            },
+            {
+              "name": "content-type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"claude-3-5-sonnet-20241022\",\n  \"max_tokens\": 300,\n  \"system\": \"You are a helpful vehicle sales assistant. Keep responses SHORT for SMS (under 160 chars). Be friendly and professional. Help with pricing, availability, and gather info for sales follow-up.\",\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"{{ $json.customerMessage }}\"\n    }\n  ]\n}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "id": "anthropic-agent",
+      "name": "Anthropic Claude Agent (HTTP)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [650, 650],
+      "credentials": {
+        "anthropicApi": {
+          "id": "2",
+          "name": "Anthropic API"
+        }
+      },
+      "notes": "ANTHROPIC CLAUDE API\n\nModel: claude-3-5-sonnet-20241022\nMax Tokens: 300 (optimal for SMS)\n\nNOTE: This uses HTTP Request.\nFor ADVANCED features, consider:\n- AI Agent node (nodes-langchain.agent)\n- Anthropic Chat Model (nodes-langchain.lmChatAnthropic)\n\nAI Agent Benefits:\n- Built-in conversation memory\n- Tool calling (check inventory, pricing)\n- Multi-turn context management\n- Better conversation flow\n\nSee: vehicle-inquiry-agent-workflow-ai-agent.json\nfor AI Agent implementation example."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract Claude's response\nconst claudeResponse = $input.item.json;\n\n// Get agent message text\nconst agentMessage = claudeResponse.content[0].text;\n\n// Prepare for SMS sending\nconst smsData = {\n  customerPhone: $('Parse Inbound SMS').item.json.customerPhone,\n  agentMessage: agentMessage,\n  twilioNumber: $('Parse Inbound SMS').item.json.twilioNumber,\n  conversationId: $('Parse Inbound SMS').item.json.twilioMessageSid,\n  timestamp: new Date().toISOString(),\n  claudeResponse: claudeResponse\n};\n\n// TODO: Save to conversation history database\n// Store: customerPhone, customerMessage, agentMessage, timestamp\n\nreturn { json: smsData };"
+      },
+      "id": "process-agent-response",
+      "name": "Process Agent Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [850, 650],
+      "notes": "PROCESS AGENT RESPONSE\n\nExtracts Claude's response and prepares for SMS.\n\nTODO:\n- Add database persistence\n- Store conversation history\n- Track customer interactions\n\nDatabase Schema:\nconversations: id, customer_phone, vehicle_id, status\nmessages: id, conversation_id, role, message, timestamp"
+    },
+    {
+      "parameters": {
+        "resource": "sms",
+        "operation": "send",
+        "from": "={{ $json.twilioNumber }}",
+        "to": "={{ $json.customerPhone }}",
+        "message": "={{ $json.agentMessage }}"
+      },
+      "id": "send-agent-reply-sms",
+      "name": "Send Agent Reply (Twilio)",
+      "type": "n8n-nodes-base.twilio",
+      "typeVersion": 2,
+      "position": [1050, 650],
+      "credentials": {
+        "twilioApi": {
+          "id": "1",
+          "name": "Twilio account"
+        }
+      },
+      "notes": "NATIVE TWILIO NODE - Reply SMS\n\nIMPROVEMENT: Uses native Twilio node\n\nSends Claude's response back to customer.\nCreates conversational loop:\nCustomer → Twilio → n8n → Claude → n8n → Twilio → Customer"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Lead qualification logic\nconst agentMessage = $input.item.json.agentMessage.toLowerCase();\nconst customerMessage = $('Parse Inbound SMS').item.json.customerMessage.toLowerCase();\n\n// Qualification keywords\nconst qualificationKeywords = [\n  'test drive',\n  'appointment',\n  'visit',\n  'buy',\n  'purchase',\n  'financing',\n  'finance',\n  'trade-in',\n  'trade in',\n  'call me',\n  'contact me',\n  'interested',\n  'phone number',\n  'email',\n  'come in',\n  'stop by'\n];\n\n// Check if conversation indicates qualified lead\nconst isQualified = qualificationKeywords.some(keyword => \n  customerMessage.includes(keyword) || agentMessage.includes(keyword)\n);\n\n// Prepare lead data\nconst leadData = {\n  customerPhone: $('Parse Inbound SMS').item.json.customerPhone,\n  customerMessage: customerMessage,\n  agentMessage: agentMessage,\n  isQualified: isQualified,\n  leadSource: 'vehicle_inquiry_agent_sms',\n  timestamp: new Date().toISOString(),\n  conversationSummary: `Customer: ${customerMessage}\\nAgent: ${agentMessage}`,\n  leadStatus: isQualified ? 'qualified' : 'nurturing'\n};\n\nreturn { json: leadData };"
+      },
+      "id": "check-lead-qualification",
+      "name": "Check Lead Qualification",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1050, 800],
+      "notes": "LEAD QUALIFICATION CHECK\n\nAnalyzes conversation for buying signals:\n- Test drive requests\n- Appointment scheduling\n- Financing inquiries\n- Trade-in mentions\n- Direct contact requests\n\nIf qualified: Triggers sales team notification\nIf not: Continues nurturing conversation\n\nENHANCEMENT:\nUse Claude to analyze qualification level and score leads."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.isQualified }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "is-lead-qualified",
+      "name": "Is Lead Qualified?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1250, 800],
+      "notes": "ROUTING DECISION\n\nTrue: Forward to sales team\nFalse: Continue conversation (no action)"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.CRM_WEBHOOK_URL }}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"lead_source\": \"vehicle_inquiry_agent\",\n  \"customer_phone\": \"{{ $json.customerPhone }}\",\n  \"timestamp\": \"{{ $json.timestamp }}\",\n  \"conversation_summary\": \"{{ $json.conversationSummary }}\",\n  \"lead_status\": \"qualified\",\n  \"follow_up_priority\": \"high\",\n  \"notes\": \"Lead generated through AI agent SMS conversation. Customer expressed buying interest.\"\n}",
+        "options": {}
+      },
+      "id": "forward-to-crm",
+      "name": "Forward Lead to CRM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1450, 750],
+      "notes": "LEAD FORWARDING\n\nForwards qualified lead to your team.\n\nOPTIONS:\n\n1. CRM API (Current):\n   - Set CRM_WEBHOOK_URL env variable\n   - Configure CRM webhook endpoint\n\n2. Email Notification:\n   - Use n8n Email node\n   - Send to sales@yourdealership.com\n\n3. Slack Notification:\n   - Use n8n Slack node\n   - Post to #leads channel\n\n4. Database:\n   - Store in PostgreSQL\n   - Sales dashboard pulls leads\n\nRECOMMENDATION:\nStart with email, then add CRM integration."
+    },
+    {
+      "parameters": {
+        "resource": "sms",
+        "operation": "send",
+        "from": "={{ $env.TWILIO_PHONE_NUMBER }}",
+        "to": "={{ $json.customerPhone }}",
+        "message": "Great! I've forwarded your information to our sales team. Expect a call within the next hour. Thanks for your interest!"
+      },
+      "id": "send-confirmation-sms",
+      "name": "Send Confirmation SMS (Twilio)",
+      "type": "n8n-nodes-base.twilio",
+      "typeVersion": 2,
+      "position": [1650, 750],
+      "credentials": {
+        "twilioApi": {
+          "id": "1",
+          "name": "Twilio account"
+        }
+      },
+      "notes": "CONFIRMATION SMS\n\nSends final confirmation:\n- Information received\n- Sales team will follow up\n- Expected timeframe\n\nCloses the loop and sets expectations."
+    }
+  ],
+  "connections": {
+    "Webhook - Widget Trigger": {
+      "main": [
+        [
+          {
+            "node": "Validate Required Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Required Fields": {
+      "main": [
+        [
+          {
+            "node": "Prepare Agent Context",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error Response - Missing Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Agent Context": {
+      "main": [
+        [
+          {
+            "node": "Send Initial SMS (Twilio)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Initial SMS (Twilio)": {
+      "main": [
+        [
+          {
+            "node": "Success Response to Widget",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Twilio Inbound SMS Trigger": {
+      "main": [
+        [
+          {
+            "node": "Parse Inbound SMS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Inbound SMS": {
+      "main": [
+        [
+          {
+            "node": "Anthropic Claude Agent (HTTP)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anthropic Claude Agent (HTTP)": {
+      "main": [
+        [
+          {
+            "node": "Process Agent Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Process Agent Response": {
+      "main": [
+        [
+          {
+            "node": "Send Agent Reply (Twilio)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Check Lead Qualification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Agent Reply (Twilio)": {
+      "main": [
+        []
+      ]
+    },
+    "Check Lead Qualification": {
+      "main": [
+        [
+          {
+            "node": "Is Lead Qualified?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Lead Qualified?": {
+      "main": [
+        [
+          {
+            "node": "Forward Lead to CRM",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Forward Lead to CRM": {
+      "main": [
+        [
+          {
+            "node": "Send Confirmation SMS (Twilio)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": ["automotive", "ai-agent", "sms", "lead-generation"],
+  "meta": {
+    "instanceId": "your-instance-id",
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "versionId": "2.0.0",
+  "triggerCount": 2,
+  "active": false
+}

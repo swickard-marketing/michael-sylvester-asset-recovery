@@ -1,0 +1,584 @@
+{
+  "name": "Complete Customer Journey - Customer.io",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "# Complete Customer Journey Workflow\n\n**5 Stages:**\n1. Awareness - Traffic ETL\n2. Consideration - Nurture\n3. Intent - Event triggers\n4. Conversion - Lead scoring\n5. Retention - Lifecycle\n\n**Integrations:**\n- BigQuery (data warehouse)\n- Customer.io (campaigns)\n- JOMP (AI analysis)\n- Twilio (SMS)",
+        "height": 350,
+        "width": 250
+      },
+      "id": "a1b2c3d4",
+      "name": "Workflow Overview",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [100, 100]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 3
+            }
+          ]
+        }
+      },
+      "id": "cron001",
+      "name": "Every 3 Hours",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [400, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT user_id, email, page_time_spent, viewed_financing_options, form_submitted, last_visit_date, phone, first_name FROM `project.dataset.user_behavior` WHERE page_time_spent > 30 AND last_visit_date >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 7 DAY)",
+        "options": {}
+      },
+      "id": "bq001",
+      "name": "Fetch Journey Data",
+      "type": "n8n-nodes-base.googleBigQuery",
+      "typeVersion": 2,
+      "position": [600, 300],
+      "credentials": {
+        "googleBigQueryOAuth2Api": {
+          "id": "{{$credentials.googleBigQueryOAuth2Api}}",
+          "name": "BigQuery OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Determine journey stage and scoring\nfor (const item of $input.all()) {\n  const data = item.json;\n  let score = 0;\n  let stage = 'awareness';\n  let intent_level = 'low';\n  \n  // Basic scoring logic\n  if (data.page_time_spent) {\n    score += Math.min(data.page_time_spent / 10, 30);\n  }\n  \n  if (data.viewed_financing_options) {\n    score += 20;\n    stage = 'consideration';\n  }\n  \n  if (data.form_submitted) {\n    score += 50;\n    stage = 'conversion';\n  }\n  \n  // Determine intent level\n  if (score >= 70) {\n    intent_level = 'high';\n  } else if (score >= 40) {\n    intent_level = 'medium';\n  }\n  \n  // Add calculated fields\n  item.json.journey_stage = stage;\n  item.json.intent_score = Math.round(score);\n  item.json.intent_level = intent_level;\n  item.json.process_timestamp = new Date().toISOString();\n}\n\nreturn $input.all();"
+      },
+      "id": "code001",
+      "name": "Score & Stage",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [800, 300]
+    },
+    {
+      "parameters": {
+        "resource": "customer",
+        "operation": "upsert",
+        "id": "={{ $json.user_id }}",
+        "email": "={{ $json.email }}",
+        "additionalFields": {
+          "createdAt": "={{ $json.process_timestamp }}",
+          "firstName": "={{ $json.first_name }}",
+          "phoneNumber": "={{ $json.phone }}",
+          "customAttributes": {
+            "journey_stage": "={{ $json.journey_stage }}",
+            "intent_score": "={{ $json.intent_score }}",
+            "intent_level": "={{ $json.intent_level }}",
+            "page_time_spent": "={{ $json.page_time_spent }}",
+            "viewed_financing": "={{ $json.viewed_financing_options }}",
+            "form_submitted": "={{ $json.form_submitted }}"
+          }
+        }
+      },
+      "id": "cio001",
+      "name": "Update Customer.io",
+      "type": "n8n-nodes-base.customerIo",
+      "typeVersion": 1,
+      "position": [1000, 300],
+      "credentials": {
+        "customerIoApi": {
+          "id": "{{$credentials.customerIoApi}}",
+          "name": "Customer.io API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.intent_level }}",
+                    "rightValue": "high",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "High Intent"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.intent_level }}",
+                    "rightValue": "medium",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "Medium Intent"
+            },
+            {
+              "conditions": {
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.intent_level }}",
+                    "rightValue": "low",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ]
+              },
+              "renameOutput": true,
+              "outputKey": "Low Intent"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "switch001",
+      "name": "Route by Intent",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1200, 300]
+    },
+    {
+      "parameters": {
+        "resource": "segment",
+        "operation": "add",
+        "segmentId": "high_intent_active",
+        "identifiersType": "ids",
+        "ids": "={{ $json.user_id }}"
+      },
+      "id": "seg001",
+      "name": "High Intent Segment",
+      "type": "n8n-nodes-base.customerIo",
+      "typeVersion": 1,
+      "position": [1400, 200],
+      "credentials": {
+        "customerIoApi": {
+          "id": "{{$credentials.customerIoApi}}",
+          "name": "Customer.io API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "segment",
+        "operation": "add",
+        "segmentId": "medium_intent_active",
+        "identifiersType": "ids",
+        "ids": "={{ $json.user_id }}"
+      },
+      "id": "seg002",
+      "name": "Medium Intent Segment",
+      "type": "n8n-nodes-base.customerIo",
+      "typeVersion": 1,
+      "position": [1400, 300],
+      "credentials": {
+        "customerIoApi": {
+          "id": "{{$credentials.customerIoApi}}",
+          "name": "Customer.io API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "segment",
+        "operation": "add",
+        "segmentId": "low_intent_monitoring",
+        "identifiersType": "ids",
+        "ids": "={{ $json.user_id }}"
+      },
+      "id": "seg003",
+      "name": "Low Intent Segment",
+      "type": "n8n-nodes-base.customerIo",
+      "typeVersion": 1,
+      "position": [1400, 400],
+      "credentials": {
+        "customerIoApi": {
+          "id": "{{$credentials.customerIoApi}}",
+          "name": "Customer.io API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "event",
+        "operation": "track",
+        "customerId": "={{ $json.user_id }}",
+        "eventName": "journey_stage_update",
+        "jsonData": {
+          "stage": "={{ $json.journey_stage }}",
+          "intent_level": "={{ $json.intent_level }}",
+          "intent_score": "={{ $json.intent_score }}",
+          "timestamp": "={{ $json.process_timestamp }}"
+        }
+      },
+      "id": "event001",
+      "name": "Track Journey Event",
+      "type": "n8n-nodes-base.customerIo",
+      "typeVersion": 1,
+      "position": [1600, 200],
+      "credentials": {
+        "customerIoApi": {
+          "id": "{{$credentials.customerIoApi}}",
+          "name": "Customer.io API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "event",
+        "operation": "track",
+        "customerId": "={{ $json.user_id }}",
+        "eventName": "nurture_campaign",
+        "jsonData": {
+          "stage": "={{ $json.journey_stage }}",
+          "intent_level": "={{ $json.intent_level }}",
+          "campaign_type": "medium_intent_nurture"
+        }
+      },
+      "id": "event002",
+      "name": "Track Nurture Event",
+      "type": "n8n-nodes-base.customerIo",
+      "typeVersion": 1,
+      "position": [1600, 300],
+      "credentials": {
+        "customerIoApi": {
+          "id": "{{$credentials.customerIoApi}}",
+          "name": "Customer.io API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "event",
+        "operation": "track",
+        "customerId": "={{ $json.user_id }}",
+        "eventName": "monitoring_stage",
+        "jsonData": {
+          "stage": "={{ $json.journey_stage }}",
+          "intent_level": "low",
+          "requires_nurture": true
+        }
+      },
+      "id": "event003",
+      "name": "Track Monitoring Event",
+      "type": "n8n-nodes-base.customerIo",
+      "typeVersion": 1,
+      "position": [1600, 400],
+      "credentials": {
+        "customerIoApi": {
+          "id": "{{$credentials.customerIoApi}}",
+          "name": "Customer.io API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "leftValue": "={{ $json.intent_score }}",
+              "rightValue": 70,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ]
+        }
+      },
+      "id": "if001",
+      "name": "Check High Priority",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1800, 200]
+    },
+    {
+      "parameters": {
+        "fromEmail": "marketing@swickard.com",
+        "toEmail": "={{ $json.email }}",
+        "subject": "Special Offer for You!",
+        "emailType": "html",
+        "htmlBody": "<h2>Hi {{ $json.first_name }},</h2><p>Based on your interest, we have a special offer waiting for you!</p><p>Your personalized deal is ready.</p><p><a href='https://swickard.com/offer'>View Your Offer</a></p>",
+        "options": {}
+      },
+      "id": "email001",
+      "name": "Send Priority Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [2000, 150],
+      "credentials": {
+        "smtp": {
+          "id": "{{$credentials.smtp}}",
+          "name": "SMTP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO `project.dataset.journey_log` (user_id, email, journey_stage, intent_level, intent_score, processed_at) VALUES ('{{ $json.user_id }}', '{{ $json.email }}', '{{ $json.journey_stage }}', '{{ $json.intent_level }}', {{ $json.intent_score }}, '{{ $json.process_timestamp }}')",
+        "options": {}
+      },
+      "id": "bq002",
+      "name": "Log to BigQuery",
+      "type": "n8n-nodes-base.googleBigQuery",
+      "typeVersion": 2,
+      "position": [2000, 300],
+      "credentials": {
+        "googleBigQueryOAuth2Api": {
+          "id": "{{$credentials.googleBigQueryOAuth2Api}}",
+          "name": "BigQuery OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// JOMP Analysis Summary\nconst items = $input.all();\nconst summary = {\n  total_processed: items.length,\n  high_intent: items.filter(i => i.json.intent_level === 'high').length,\n  medium_intent: items.filter(i => i.json.intent_level === 'medium').length,\n  low_intent: items.filter(i => i.json.intent_level === 'low').length,\n  avg_score: 0,\n  stages: {\n    awareness: 0,\n    consideration: 0,\n    intent: 0,\n    conversion: 0,\n    retention: 0\n  },\n  timestamp: new Date().toISOString()\n};\n\n// Calculate averages\nif (items.length > 0) {\n  const totalScore = items.reduce((sum, item) => sum + (item.json.intent_score || 0), 0);\n  summary.avg_score = Math.round(totalScore / items.length);\n  \n  // Count stages\n  items.forEach(item => {\n    const stage = item.json.journey_stage;\n    if (summary.stages[stage] !== undefined) {\n      summary.stages[stage]++;\n    }\n  });\n}\n\nreturn [{json: summary}];"
+      },
+      "id": "jomp001",
+      "name": "JOMP Analysis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2200, 300]
+    },
+    {
+      "parameters": {
+        "resource": "event",
+        "operation": "trackAnonymous",
+        "anonymousId": "jomp_system",
+        "eventName": "jomp_analysis_complete",
+        "jsonData": {
+          "total_processed": "={{ $json.total_processed }}",
+          "high_intent_count": "={{ $json.high_intent }}",
+          "medium_intent_count": "={{ $json.medium_intent }}",
+          "low_intent_count": "={{ $json.low_intent }}",
+          "avg_score": "={{ $json.avg_score }}",
+          "timestamp": "={{ $json.timestamp }}"
+        }
+      },
+      "id": "jomp002",
+      "name": "Send JOMP Report",
+      "type": "n8n-nodes-base.customerIo",
+      "typeVersion": 1,
+      "position": [2400, 300],
+      "credentials": {
+        "customerIoApi": {
+          "id": "{{$credentials.customerIoApi}}",
+          "name": "Customer.io API"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Every 3 Hours": {
+      "main": [
+        [
+          {
+            "node": "Fetch Journey Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Journey Data": {
+      "main": [
+        [
+          {
+            "node": "Score & Stage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Score & Stage": {
+      "main": [
+        [
+          {
+            "node": "Update Customer.io",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Customer.io": {
+      "main": [
+        [
+          {
+            "node": "Route by Intent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Intent": {
+      "main": [
+        [
+          {
+            "node": "High Intent Segment",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Medium Intent Segment",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Low Intent Segment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "High Intent Segment": {
+      "main": [
+        [
+          {
+            "node": "Track Journey Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Medium Intent Segment": {
+      "main": [
+        [
+          {
+            "node": "Track Nurture Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Low Intent Segment": {
+      "main": [
+        [
+          {
+            "node": "Track Monitoring Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Track Journey Event": {
+      "main": [
+        [
+          {
+            "node": "Check High Priority",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Track Nurture Event": {
+      "main": [
+        [
+          {
+            "node": "Log to BigQuery",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Track Monitoring Event": {
+      "main": [
+        [
+          {
+            "node": "Log to BigQuery",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check High Priority": {
+      "main": [
+        [
+          {
+            "node": "Send Priority Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log to BigQuery",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Priority Email": {
+      "main": [
+        [
+          {
+            "node": "Log to BigQuery",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log to BigQuery": {
+      "main": [
+        [
+          {
+            "node": "JOMP Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "JOMP Analysis": {
+      "main": [
+        [
+          {
+            "node": "Send JOMP Report",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {},
+  "versionId": "01234567-89ab-cdef-0123-456789abcdef",
+  "meta": {
+    "instanceId": "8a47b83b4479b11330fdf21291c70e8350305324d82dc8567b828f42e3421903"
+  },
+  "id": "LightMeVJCKKEMXzE",
+  "tags": []
+}

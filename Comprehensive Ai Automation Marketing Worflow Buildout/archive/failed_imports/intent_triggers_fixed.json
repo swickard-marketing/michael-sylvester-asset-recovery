@@ -1,0 +1,510 @@
+{
+  "name": "Intent Stage Triggers - Customer.io Integration",
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "error_handler"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "path": "events/intent",
+        "httpMethod": "POST",
+        "responseMode": "onReceived",
+        "responseData": "firstEntryJson",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "webhook-trigger",
+      "name": "Intent Event Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [260, 300],
+      "webhookId": "intent-events"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "valid-event",
+              "leftValue": "={{ $json.event_name }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            },
+            {
+              "id": "has-user",
+              "leftValue": "={{ $json.user_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "validate-input",
+      "name": "Validate Event Data",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Map intent signals to scoring\nconst intentSignals = {\n  'asc_click_to_call': 80,\n  'master_buy_click': 90,\n  'master_chat_click': 60,\n  'master_get_more_details': 40,\n  'master_schedule_test_drive': 100,\n  'master_see_payment_options': 70,\n  'master_see_vehicle_info': 50,\n  'master_text_for_price': 65,\n  'master_unlock_button_click': 55,\n  'master_value_your_trade': 75\n};\n\nconst eventName = $input.item.json.event_name;\nconst intentScore = intentSignals[eventName] || 30;\n\n// Determine intent level\nlet intentLevel = 'low';\nif (intentScore >= 80) {\n  intentLevel = 'high';\n} else if (intentScore >= 60) {\n  intentLevel = 'medium';\n}\n\n// Prepare enriched data\nreturn [{\n  json: {\n    ...$input.item.json,\n    intent_score: intentScore,\n    intent_level: intentLevel,\n    timestamp: new Date().toISOString(),\n    journey_stage: 'intent',\n    requires_immediate_action: intentScore >= 80\n  }\n}];"
+      },
+      "id": "enrich-data",
+      "name": "Calculate Intent Score",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [660, 300]
+    },
+    {
+      "parameters": {
+        "resource": "customer",
+        "operation": "upsert",
+        "id": "={{ $json.user_id }}",
+        "email": "={{ $json.email }}",
+        "additionalFields": {
+          "customAttributes": {
+            "attribute": [
+              {
+                "key": "journey_stage",
+                "value": "intent"
+              },
+              {
+                "key": "last_intent_event",
+                "value": "={{ $json.event_name }}"
+              },
+              {
+                "key": "intent_score",
+                "value": "={{ $json.intent_score }}"
+              },
+              {
+                "key": "intent_level",
+                "value": "={{ $json.intent_level }}"
+              },
+              {
+                "key": "vehicle_interest",
+                "value": "={{ $json.vehicle_id || $json.model || 'general' }}"
+              },
+              {
+                "key": "last_intent_timestamp",
+                "value": "={{ $json.timestamp }}"
+              }
+            ]
+          }
+        }
+      },
+      "id": "customerio-profile",
+      "name": "Update Customer Profile",
+      "type": "n8n-nodes-base.customerIo",
+      "typeVersion": 1,
+      "position": [860, 300],
+      "credentials": {
+        "customerIoApi": {
+          "id": "2",
+          "name": "Customer.io API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "event",
+        "operation": "track",
+        "customerId": "={{ $json.user_id }}",
+        "eventName": "{{ $json.event_name }}",
+        "additionalFields": {
+          "data": {
+            "dataProperty": [
+              {
+                "key": "intent_score",
+                "value": "={{ $json.intent_score }}"
+              },
+              {
+                "key": "intent_level",
+                "value": "={{ $json.intent_level }}"
+              },
+              {
+                "key": "page_url",
+                "value": "={{ $json.page_url }}"
+              },
+              {
+                "key": "vehicle_id",
+                "value": "={{ $json.vehicle_id }}"
+              },
+              {
+                "key": "session_id",
+                "value": "={{ $json.session_id }}"
+              },
+              {
+                "key": "source_channel",
+                "value": "={{ $json.source_channel || 'direct' }}"
+              }
+            ]
+          },
+          "timestamp": "={{ $json.timestamp }}"
+        }
+      },
+      "id": "customerio-event",
+      "name": "Track Intent Event",
+      "type": "n8n-nodes-base.customerIo",
+      "typeVersion": 1,
+      "position": [1060, 300],
+      "credentials": {
+        "customerIoApi": {
+          "id": "2",
+          "name": "Customer.io API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "expression",
+        "value1": "={{ $json.intent_level }}",
+        "rules": {
+          "rules": [
+            {
+              "value2": "high",
+              "output": 0
+            },
+            {
+              "value2": "medium",
+              "output": 1
+            },
+            {
+              "value2": "low",
+              "output": 2
+            }
+          ]
+        },
+        "fallbackOutput": 2
+      },
+      "id": "route-by-intent",
+      "name": "Route by Intent Level",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1260, 300]
+    },
+    {
+      "parameters": {
+        "resource": "segment",
+        "operation": "add",
+        "segmentId": "high_intent_active",
+        "identifiers": [
+          {
+            "identifier": "id",
+            "value": "={{ $json.user_id }}"
+          }
+        ]
+      },
+      "id": "high-intent-segment",
+      "name": "Add to High Intent Segment",
+      "type": "n8n-nodes-base.customerIo",
+      "typeVersion": 1,
+      "position": [1500, 200],
+      "credentials": {
+        "customerIoApi": {
+          "id": "2",
+          "name": "Customer.io API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "segment",
+        "operation": "add",
+        "segmentId": "medium_intent_active",
+        "identifiers": [
+          {
+            "identifier": "id",
+            "value": "={{ $json.user_id }}"
+          }
+        ]
+      },
+      "id": "medium-intent-segment",
+      "name": "Add to Medium Intent Segment",
+      "type": "n8n-nodes-base.customerIo",
+      "typeVersion": 1,
+      "position": [1500, 300],
+      "credentials": {
+        "customerIoApi": {
+          "id": "2",
+          "name": "Customer.io API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "segment",
+        "operation": "add",
+        "segmentId": "low_intent_monitoring",
+        "identifiers": [
+          {
+            "identifier": "id",
+            "value": "={{ $json.user_id }}"
+          }
+        ]
+      },
+      "id": "low-intent-segment",
+      "name": "Add to Low Intent Segment",
+      "type": "n8n-nodes-base.customerIo",
+      "typeVersion": 1,
+      "position": [1500, 400],
+      "credentials": {
+        "customerIoApi": {
+          "id": "2",
+          "name": "Customer.io API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "needs-action",
+              "leftValue": "={{ $json.requires_immediate_action }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "check-immediate",
+      "name": "Check Immediate Action",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1700, 250]
+    },
+    {
+      "parameters": {
+        "from": "={{ $credentials.twilioFrom }}",
+        "to": "={{ $json.phone }}",
+        "message": "Hi {{ $json.first_name }}, thanks for your interest in {{ $json.vehicle_id || 'our vehicles' }}! A specialist will contact you shortly to assist. Reply STOP to opt out."
+      },
+      "id": "twilio-sms",
+      "name": "Send High Intent SMS",
+      "type": "n8n-nodes-base.twilio",
+      "typeVersion": 2,
+      "position": [1900, 200],
+      "credentials": {
+        "twilioApi": {
+          "id": "5",
+          "name": "Twilio API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO `project.dataset.intent_events` (user_id, email, event_name, intent_score, intent_level, vehicle_id, page_url, session_id, source_channel, timestamp) VALUES ('{{ $json.user_id }}', '{{ $json.email }}', '{{ $json.event_name }}', {{ $json.intent_score }}, '{{ $json.intent_level }}', '{{ $json.vehicle_id }}', '{{ $json.page_url }}', '{{ $json.session_id }}', '{{ $json.source_channel }}', '{{ $json.timestamp }}')",
+        "options": {}
+      },
+      "id": "bigquery-log",
+      "name": "Log to BigQuery",
+      "type": "n8n-nodes-base.googleBigQuery",
+      "typeVersion": 2,
+      "position": [1900, 400],
+      "credentials": {
+        "googleBigQueryOAuth2Api": {
+          "id": "1",
+          "name": "BigQuery OAuth"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Intent Event Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate Event Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Event Data": {
+      "main": [
+        [
+          {
+            "node": "Calculate Intent Score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate Intent Score": {
+      "main": [
+        [
+          {
+            "node": "Update Customer Profile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Customer Profile": {
+      "main": [
+        [
+          {
+            "node": "Track Intent Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Track Intent Event": {
+      "main": [
+        [
+          {
+            "node": "Route by Intent Level",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Intent Level": {
+      "main": [
+        [
+          {
+            "node": "Add to High Intent Segment",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Add to Medium Intent Segment",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Add to Low Intent Segment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add to High Intent Segment": {
+      "main": [
+        [
+          {
+            "node": "Check Immediate Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add to Medium Intent Segment": {
+      "main": [
+        [
+          {
+            "node": "Log to BigQuery",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add to Low Intent Segment": {
+      "main": [
+        [
+          {
+            "node": "Log to BigQuery",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Immediate Action": {
+      "main": [
+        [
+          {
+            "node": "Send High Intent SMS",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log to BigQuery",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send High Intent SMS": {
+      "main": [
+        [
+          {
+            "node": "Log to BigQuery",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "id": "1",
+      "name": "intent"
+    },
+    {
+      "id": "2",
+      "name": "customer.io"
+    },
+    {
+      "id": "3",
+      "name": "real-time"
+    },
+    {
+      "id": "4",
+      "name": "webhook"
+    }
+  ],
+  "triggerCount": 0,
+  "updatedAt": "2025-08-07T10:00:00.000Z",
+  "versionId": "v1"
+}

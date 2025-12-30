@@ -1,0 +1,135 @@
+Name
+
+## IDENTIFIERS - Basic customer identification and contact attributes
+
+Advisor-Name
+Advisor-Number
+BDC-User-Full-Name
+Business-Unit-Name
+cio_id
+cio_subscription_preferences
+cio_subscription_preferences.topics.topic_1
+cio_subscription_preferences.topics.topic_2
+cio_subscription_preferences.topics.topic_3
+cio_subscription_preferences.topics.topic_4
+cio_subscription_preferences.topics.topic_5
+cio_subscription_preferences.topics.topic_6
+cio_subscription_preferences.topics.topic_7
+Client-Address1
+Client-Address2
+Client-Alt.-Email
+Client-Cell
+Client-City
+Client-Contact-First
+Client-Contact-Last
+Client-DMS-Customer-Number
+Client-First-Name
+Client-First-Name/Business-Name
+Client-Full-Address
+Client-Full-Name
+Client-Home-Phone
+Client-Last-Name
+Client-Middle-Name
+Client-Phone:-Other
+Client-Phone:-Text
+Client-State
+Client-Work-Phone
+Client-ZIP-Code
+created_at
+CS-Client-Last-RO-Date
+CS-Rec-Service-Accept
+CS-Rec-Service-Refusal-Code
+CS-RO-Close-Date
+CS-RO-Date
+CS-RO-Number
+DMS-Advisor-Name
+DMS-Business-Unit
+DMS-Client-Cell
+DMS-Client-Customer-Number
+DMS-Client-Full-Name
+DMS-CV-Flag
+email
+emailable score
+emailable state
+Hierarchy
+id
+Salesperson/User-Full-Name
+Secondary-Slsp/User-Full-Name
+unsubscribed
+_created_in_customerio_at
+Dealer-Contact-Consent-for-Alternate-Email
+Dealer-Contact-Consent-for-Direct-Mail
+Dealer-Contact-Consent-for-Email
+Dealer-Contact-Consent-for-Phone
+DMS-Dealer-Contact-Consent-for-Direct-Mail
+DMS-Dealer-Contact-Consent-for-Email
+DMS-Dealer-Contact-Consent-for-Phone
+
+## SALES - Vehicle purchase and sales-related attributes
+
+Deal Number
+Deal-Number
+Desired-Make
+Desired-Model
+Desired-Stock-Number
+Desired-Stock-Type
+Desired-Style
+Desired-Year
+DMS-Deal-Category
+DMS-Deal-Date
+DMS-Make
+DMS-New-Used
+DMS-Salesperson-Name
+DMS-Vehicle-Model
+Footer-recs
+Prospect-Created-Date
+Prospect-Modified-Date
+Prospect-Source
+Prospect-Status
+Prospect-Status-Type-
+Prospect-Type
+Sales-Close-Date
+Sales-Deal-Date
+Sales-Deal-Number
+Sales-Lease-Termination-Date
+Sales-Specs-Recs
+Sales-Stock-Number
+Salesperson1-Name
+Vehicle-Make
+Vehicle-Model
+Vehicle-Stock-Type
+Vehicle-Style
+Vehicle-VIN
+Vehicle-Year
+
+## SERVICE - Service and repair-related attributes
+
+CS-Client-Last-RO-Date
+CS-Rec-Service-Accept
+CS-Rec-Service-Refusal-Code
+CS-RO-Close-Date
+CS-RO-Date
+CS-RO-Number
+DMS-Last-RO-Date
+DMS-Last-RO-Number
+Vehicle-Last-RO-Mileage
+Vehicle-Mileage-Out
+
+## PRE-OWNED - Trade-in and used vehicle attributes
+
+pre-owned-recs
+Trade-Make
+Trade-Mileage
+Trade-Model
+Trade-VIN
+Trade-Year
+
+## LIQUID EXAMPLES - Template reference examples
+
+Collection Example
+Collection Item Access
+Snippet Include
+Snippet With Parameters
+Conditional Logic
+Date Formatting
+Math Operations

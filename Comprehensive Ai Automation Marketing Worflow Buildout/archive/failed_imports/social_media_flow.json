@@ -1,0 +1,743 @@
+{
+  "name": "Social Media Customer Flow - Metricool Integration",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Social Media Flow Connection Points\n\n**ATTACH TO:**\n1. After **'Route by Stage'** node → New branch for social\n2. After **'Check High Priority'** node → Social retargeting\n3. Parallel to **'Send SMS'** node → Multi-channel messaging\n\n**Data Flow:**\nBigQuery → Scoring → Route by Stage → **[SOCIAL BRANCH]** → Metricool",
+        "height": 250,
+        "width": 350
+      },
+      "id": "social-instructions",
+      "name": "Connection Instructions",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [100, 100]
+    },
+    {
+      "parameters": {
+        "path": "events/social",
+        "httpMethod": "POST",
+        "responseMode": "onReceived",
+        "responseData": "firstEntryJson",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "social-webhook",
+      "name": "Social Events Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [500, 200],
+      "webhookId": "social-events"
+    },
+    {
+      "parameters": {
+        "authentication": "headerAuth",
+        "url": "https://api.metricool.com/v1/accounts",
+        "method": "GET",
+        "headerAuth": {
+          "credentialType": "apiKey",
+          "credentials": {
+            "name": "X-API-Key",
+            "value": "={{ $credentials.metricoolApiKey }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "metricool-accounts",
+      "name": "Fetch Metricool Accounts",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [700, 200]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Determine social media action based on journey stage and intent\nconst items = [];\n\nfor (const item of $input.all()) {\n  const data = item.json;\n  let social_action = 'monitor';\n  let platform_priority = [];\n  let content_type = 'educational';\n  let urgency = 'normal';\n  \n  // Determine action based on journey stage\n  switch(data.journey_stage) {\n    case 'awareness':\n      social_action = 'brand_awareness';\n      platform_priority = ['facebook', 'instagram', 'youtube'];\n      content_type = 'educational';\n      break;\n      \n    case 'consideration':\n      social_action = 'engagement_nurture';\n      platform_priority = ['facebook', 'instagram', 'linkedin'];\n      content_type = 'comparison';\n      break;\n      \n    case 'intent':\n      social_action = 'retargeting_ads';\n      platform_priority = ['facebook', 'instagram', 'google'];\n      content_type = 'promotional';\n      urgency = data.intent_level === 'high' ? 'immediate' : 'normal';\n      break;\n      \n    case 'conversion':\n      social_action = 'conversion_push';\n      platform_priority = ['facebook', 'instagram'];\n      content_type = 'offer';\n      urgency = 'high';\n      break;\n      \n    case 'retention':\n      social_action = 'loyalty_engagement';\n      platform_priority = ['facebook', 'instagram', 'twitter'];\n      content_type = 'community';\n      break;\n  }\n  \n  // Add social scoring\n  let social_score = 0;\n  if (data.social_interactions > 10) social_score += 30;\n  else if (data.social_interactions > 5) social_score += 20;\n  else if (data.social_interactions > 0) social_score += 10;\n  \n  if (data.social_shares > 0) social_score += 20;\n  if (data.social_mentions > 0) social_score += 15;\n  \n  items.push({\n    json: {\n      ...data,\n      social_action: social_action,\n      platform_priority: platform_priority,\n      content_type: content_type,\n      urgency: urgency,\n      social_score: social_score,\n      social_segment: social_score >= 40 ? 'influencer' : social_score >= 20 ? 'engaged' : 'passive'\n    }\n  });\n}\n\nreturn items;"
+      },
+      "id": "social-scoring",
+      "name": "Social Media Scoring",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 200]
+    },
+    {
+      "parameters": {
+        "mode": "expression",
+        "value1": "={{ $json.social_action }}",
+        "rules": {
+          "rules": [
+            {
+              "value2": "brand_awareness",
+              "output": 0
+            },
+            {
+              "value2": "engagement_nurture",
+              "output": 1
+            },
+            {
+              "value2": "retargeting_ads",
+              "output": 2
+            },
+            {
+              "value2": "conversion_push",
+              "output": 3
+            },
+            {
+              "value2": "loyalty_engagement",
+              "output": 4
+            }
+          ]
+        },
+        "fallbackOutput": 5
+      },
+      "id": "social-router",
+      "name": "Route Social Action",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1100, 200]
+    },
+    {
+      "parameters": {
+        "authentication": "headerAuth",
+        "url": "https://api.metricool.com/v1/posts",
+        "method": "POST",
+        "headerAuth": {
+          "credentialType": "apiKey",
+          "credentials": {
+            "name": "X-API-Key",
+            "value": "={{ $credentials.metricoolApiKey }}"
+          }
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "json": {
+            "accounts": "={{ $json.platform_priority }}",
+            "content": {
+              "text": "🚗 Discover your dream car at Swickard! Check out our latest {{ $json.vehicle_category }} models with special financing options available. #Swickard #{{ $json.vehicle_brand }} #CarShopping",
+              "media": [
+                {
+                  "type": "image",
+                  "url": "https://inventory.swickard.com/vehicles/{{ $json.vehicle_id }}/image.jpg"
+                }
+              ]
+            },
+            "schedule": {
+              "publish_date": "={{ $now.plus({hours: 2}).toISO() }}",
+              "timezone": "America/Los_Angeles"
+            },
+            "targeting": {
+              "age_min": 25,
+              "age_max": 65,
+              "locations": ["California", "Nevada", "Oregon"],
+              "interests": ["automobiles", "car shopping", "{{ $json.vehicle_brand }}"]
+            }
+          }
+        }
+      },
+      "id": "awareness-post",
+      "name": "Brand Awareness Post",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1340, 50]
+    },
+    {
+      "parameters": {
+        "authentication": "headerAuth",
+        "url": "https://api.metricool.com/v1/posts",
+        "method": "POST",
+        "headerAuth": {
+          "credentialType": "apiKey",
+          "credentials": {
+            "name": "X-API-Key",
+            "value": "={{ $credentials.metricoolApiKey }}"
+          }
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "json": {
+            "accounts": "={{ $json.platform_priority }}",
+            "content": {
+              "text": "🤔 {{ $json.first_name }}, still comparing options? Here's why our {{ $json.vehicle_interest }} stands out: ✅ Best-in-class warranty ✅ 0% APR available ✅ Trade-in bonuses. Schedule a test drive today!",
+              "media": [
+                {
+                  "type": "video",
+                  "url": "https://content.swickard.com/comparison/{{ $json.vehicle_id }}.mp4"
+                }
+              ],
+              "cta": {
+                "type": "learn_more",
+                "url": "https://swickard.com/compare?model={{ $json.vehicle_id }}"
+              }
+            },
+            "schedule": {
+              "publish_date": "={{ $now.plus({hours: 1}).toISO() }}"
+            }
+          }
+        }
+      },
+      "id": "nurture-post",
+      "name": "Engagement Nurture Post",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1340, 150]
+    },
+    {
+      "parameters": {
+        "authentication": "headerAuth",
+        "url": "https://api.metricool.com/v1/ads/retargeting",
+        "method": "POST",
+        "headerAuth": {
+          "credentialType": "apiKey",
+          "credentials": {
+            "name": "X-API-Key",
+            "value": "={{ $credentials.metricoolApiKey }}"
+          }
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "json": {
+            "campaign_name": "High_Intent_Retargeting_{{ $json.user_id }}",
+            "platforms": ["facebook", "instagram"],
+            "audience": {
+              "type": "custom",
+              "email_hash": "={{ $json.email_hash }}",
+              "phone_hash": "={{ $json.phone_hash }}",
+              "user_id": "={{ $json.user_id }}"
+            },
+            "ad_creative": {
+              "headline": "{{ $json.first_name }}, Your {{ $json.vehicle_interest }} is Still Available!",
+              "description": "Special offer expires soon. Lock in your price today!",
+              "image": "https://inventory.swickard.com/vehicles/{{ $json.vehicle_id }}/hero.jpg",
+              "cta": "Get Your Quote"
+            },
+            "budget": {
+              "daily": 50,
+              "total": 200
+            },
+            "duration": {
+              "start": "={{ $now.toISO() }}",
+              "end": "={{ $now.plus({days: 7}).toISO() }}"
+            }
+          }
+        }
+      },
+      "id": "retargeting-ads",
+      "name": "Launch Retargeting Ads",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1340, 250]
+    },
+    {
+      "parameters": {
+        "authentication": "headerAuth",
+        "url": "https://api.metricool.com/v1/ads/conversion",
+        "method": "POST",
+        "headerAuth": {
+          "credentialType": "apiKey",
+          "credentials": {
+            "name": "X-API-Key",
+            "value": "={{ $credentials.metricoolApiKey }}"
+          }
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "json": {
+            "campaign_name": "Conversion_Push_{{ $json.user_id }}",
+            "platforms": ["facebook", "instagram", "google"],
+            "ad_type": "dynamic_product",
+            "creative": {
+              "template": "urgency",
+              "headline": "⏰ Last Chance: {{ $json.special_offer }}",
+              "body": "{{ $json.first_name }}, your exclusive offer on the {{ $json.vehicle_interest }} expires in 24 hours!",
+              "countdown": true,
+              "offer_code": "CONVERT{{ $json.user_id.slice(-4) }}"
+            },
+            "targeting": {
+              "remarketing_list": "high_intent_visitors",
+              "lookalike": false
+            },
+            "budget": {
+              "daily": 100,
+              "bid_strategy": "maximize_conversions"
+            }
+          }
+        }
+      },
+      "id": "conversion-push",
+      "name": "Conversion Push Campaign",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1340, 350]
+    },
+    {
+      "parameters": {
+        "authentication": "headerAuth",
+        "url": "https://api.metricool.com/v1/posts",
+        "method": "POST",
+        "headerAuth": {
+          "credentialType": "apiKey",
+          "credentials": {
+            "name": "X-API-Key",
+            "value": "={{ $credentials.metricoolApiKey }}"
+          }
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "json": {
+            "accounts": ["facebook", "instagram"],
+            "content": {
+              "text": "🎉 Thank you {{ $json.first_name }} for being part of the Swickard family! Share your experience and get $100 off your next service. #SwickardFamily #CustomerLove",
+              "type": "loyalty",
+              "media": [
+                {
+                  "type": "image",
+                  "url": "https://content.swickard.com/loyalty/thank-you.jpg"
+                }
+              ]
+            },
+            "engagement_features": {
+              "enable_reviews": true,
+              "enable_referrals": true,
+              "reward_shares": true
+            }
+          }
+        }
+      },
+      "id": "loyalty-post",
+      "name": "Loyalty Engagement",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1340, 450]
+    },
+    {
+      "parameters": {
+        "authentication": "headerAuth",
+        "url": "https://api.metricool.com/v1/analytics/engagement",
+        "method": "GET",
+        "headerAuth": {
+          "credentialType": "apiKey",
+          "credentials": {
+            "name": "X-API-Key",
+            "value": "={{ $credentials.metricoolApiKey }}"
+          }
+        },
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "user_id",
+              "value": "={{ $json.user_id }}"
+            },
+            {
+              "name": "date_from",
+              "value": "={{ $now.minus({days: 30}).toFormat('yyyy-MM-dd') }}"
+            },
+            {
+              "name": "metrics",
+              "value": "likes,comments,shares,mentions,clicks,reach"
+            }
+          ]
+        }
+      },
+      "id": "social-analytics",
+      "name": "Fetch Social Analytics",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1540, 250]
+    },
+    {
+      "parameters": {
+        "resource": "customer",
+        "operation": "upsert",
+        "id": "={{ $json.user_id }}",
+        "email": "={{ $json.email }}",
+        "additionalFields": {
+          "customAttributes": {
+            "attribute": [
+              {
+                "key": "social_score",
+                "value": "={{ $json.social_score }}"
+              },
+              {
+                "key": "social_segment",
+                "value": "={{ $json.social_segment }}"
+              },
+              {
+                "key": "preferred_social_platform",
+                "value": "={{ $json.platform_priority[0] }}"
+              },
+              {
+                "key": "social_engagement_level",
+                "value": "={{ $json.social_segment }}"
+              },
+              {
+                "key": "last_social_interaction",
+                "value": "={{ $now.toISO() }}"
+              },
+              {
+                "key": "social_campaign_enrolled",
+                "value": "={{ $json.social_action }}"
+              }
+            ]
+          }
+        }
+      },
+      "id": "customerio-social",
+      "name": "Update Social Profile",
+      "type": "n8n-nodes-base.customerIo",
+      "typeVersion": 1,
+      "position": [1740, 250],
+      "credentials": {
+        "customerIoApi": {
+          "id": "2",
+          "name": "Customer.io API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "event",
+        "operation": "track",
+        "customerId": "={{ $json.user_id }}",
+        "eventName": "social_campaign_triggered",
+        "additionalFields": {
+          "data": {
+            "dataProperty": [
+              {
+                "key": "campaign_type",
+                "value": "={{ $json.social_action }}"
+              },
+              {
+                "key": "platforms",
+                "value": "={{ JSON.stringify($json.platform_priority) }}"
+              },
+              {
+                "key": "content_type",
+                "value": "={{ $json.content_type }}"
+              },
+              {
+                "key": "social_score",
+                "value": "={{ $json.social_score }}"
+              },
+              {
+                "key": "urgency",
+                "value": "={{ $json.urgency }}"
+              }
+            ]
+          }
+        }
+      },
+      "id": "track-social",
+      "name": "Track Social Event",
+      "type": "n8n-nodes-base.customerIo",
+      "typeVersion": 1,
+      "position": [1940, 250],
+      "credentials": {
+        "customerIoApi": {
+          "id": "2",
+          "name": "Customer.io API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO `project.dataset.social_campaigns` (user_id, email, journey_stage, social_action, platform_priority, content_type, social_score, social_segment, urgency, campaign_timestamp) VALUES ('{{ $json.user_id }}', '{{ $json.email }}', '{{ $json.journey_stage }}', '{{ $json.social_action }}', '{{ JSON.stringify($json.platform_priority) }}', '{{ $json.content_type }}', {{ $json.social_score }}, '{{ $json.social_segment }}', '{{ $json.urgency }}', '{{ $now.toISO() }}')",
+        "options": {}
+      },
+      "id": "social-bigquery",
+      "name": "Log Social to BigQuery",
+      "type": "n8n-nodes-base.googleBigQuery",
+      "typeVersion": 2,
+      "position": [2140, 250],
+      "credentials": {
+        "googleBigQueryOAuth2Api": {
+          "id": "1",
+          "name": "BigQuery OAuth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "influencer-check",
+              "leftValue": "={{ $json.social_segment }}",
+              "rightValue": "influencer",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "influencer-filter",
+      "name": "Check Influencer Status",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1540, 450]
+    },
+    {
+      "parameters": {
+        "authentication": "headerAuth",
+        "url": "https://api.metricool.com/v1/influencer/outreach",
+        "method": "POST",
+        "headerAuth": {
+          "credentialType": "apiKey",
+          "credentials": {
+            "name": "X-API-Key",
+            "value": "={{ $credentials.metricoolApiKey }}"
+          }
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "json": {
+            "influencer_id": "={{ $json.user_id }}",
+            "offer": {
+              "type": "brand_ambassador",
+              "benefits": [
+                "Exclusive discounts",
+                "Early access to new models",
+                "Referral bonuses",
+                "VIP service treatment"
+              ],
+              "requirements": {
+                "min_followers": 1000,
+                "min_engagement_rate": 3,
+                "posts_per_month": 2
+              }
+            },
+            "message": "Hi {{ $json.first_name }}, we love your engagement with Swickard! We'd like to invite you to our exclusive Brand Ambassador program."
+          }
+        }
+      },
+      "id": "influencer-outreach",
+      "name": "Influencer Outreach",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1740, 450]
+    }
+  ],
+  "connections": {
+    "Social Events Webhook": {
+      "main": [
+        [
+          {
+            "node": "Social Media Scoring",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Metricool Accounts": {
+      "main": [
+        [
+          {
+            "node": "Social Media Scoring",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Social Media Scoring": {
+      "main": [
+        [
+          {
+            "node": "Route Social Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Social Action": {
+      "main": [
+        [
+          {
+            "node": "Brand Awareness Post",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Engagement Nurture Post",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Launch Retargeting Ads",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Conversion Push Campaign",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Loyalty Engagement",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Brand Awareness Post": {
+      "main": [
+        [
+          {
+            "node": "Fetch Social Analytics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Engagement Nurture Post": {
+      "main": [
+        [
+          {
+            "node": "Fetch Social Analytics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Launch Retargeting Ads": {
+      "main": [
+        [
+          {
+            "node": "Fetch Social Analytics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Conversion Push Campaign": {
+      "main": [
+        [
+          {
+            "node": "Fetch Social Analytics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loyalty Engagement": {
+      "main": [
+        [
+          {
+            "node": "Check Influencer Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Social Analytics": {
+      "main": [
+        [
+          {
+            "node": "Update Social Profile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Social Profile": {
+      "main": [
+        [
+          {
+            "node": "Track Social Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Track Social Event": {
+      "main": [
+        [
+          {
+            "node": "Log Social to BigQuery",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Influencer Status": {
+      "main": [
+        [
+          {
+            "node": "Influencer Outreach",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fetch Social Analytics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Influencer Outreach": {
+      "main": [
+        [
+          {
+            "node": "Update Social Profile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": {},
+  "tags": [
+    {
+      "name": "social-media"
+    },
+    {
+      "name": "metricool"
+    },
+    {
+      "name": "customer-journey"
+    }
+  ],
+  "triggerCount": 0,
+  "active": false
+}

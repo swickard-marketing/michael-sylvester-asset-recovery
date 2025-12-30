@@ -1,0 +1,189 @@
+{
+  "name": "Awareness Stage Consolidated Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "url": "={{ $vars.webhookUrl }}/awareness",
+        "authentication": "headerAuth",
+        "options": {}
+      },
+      "id": "awareness-webhook",
+      "name": "Awareness Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1.1,
+      "position": [250, 300],
+      "webhookId": "awareness-entry"
+    },
+    {
+      "parameters": {
+        "jsCode": "// AWARENESS STAGE ORCHESTRATOR\n// Complete awareness campaign management with multi-channel distribution\n\nconst config = {\n  customerIo: {\n    siteId: $getNodeParameter('customerIoSiteId', 'YOUR_SITE_ID'),\n    apiKey: $getNodeParameter('customerIoApiKey', 'YOUR_API_KEY')\n  },\n  metricool: {\n    apiKey: $getNodeParameter('metricoolApiKey', 'YOUR_METRICOOL_KEY'),\n    baseUrl: 'https://api.metricool.com/v1'\n  },\n  twilio: {\n    accountSid: $getNodeParameter('twilioAccountSid', 'YOUR_ACCOUNT_SID'),\n    authToken: $getNodeParameter('twilioAuthToken', 'YOUR_AUTH_TOKEN'),\n    from: $getNodeParameter('twilioFrom', '+15551234567')\n  },\n  bigQuery: {\n    projectId: $getNodeParameter('bigQueryProject', 'your-project-id'),\n    dataset: 'marketing',\n    tables: {\n      awareness: 'awareness_campaigns',\n      engagement: 'awareness_engagement',\n      conversions: 'awareness_conversions'\n    }\n  }\n};\n\n// Main awareness stage processor\nasync function processAwarenessStage() {\n  const results = {\n    timestamp: new Date().toISOString(),\n    stage: 'awareness',\n    campaigns: [],\n    segments: [],\n    channels: {\n      email: [],\n      sms: [],\n      social: [],\n      display: []\n    },\n    metrics: {\n      totalContacts: 0,\n      newContacts: 0,\n      reactivated: 0,\n      segmented: 0,\n      campaigns_created: 0,\n      errors: []\n    }\n  };\n\n  try {\n    // Step 1: Analyze incoming data\n    console.log('Processing awareness stage data...');\n    const contacts = await processIncomingContacts();\n    results.metrics.totalContacts = contacts.length;\n    \n    // Step 2: Segment contacts for awareness\n    console.log('Segmenting contacts...');\n    const segments = segmentAwarenessContacts(contacts);\n    results.segments = segments;\n    results.metrics.segmented = segments.reduce((sum, s) => sum + s.contacts.length, 0);\n    \n    // Step 3: Create targeted campaigns\n    console.log('Creating awareness campaigns...');\n    const campaigns = await createAwarenessCampaigns(segments);\n    results.campaigns = campaigns;\n    results.metrics.campaigns_created = campaigns.length;\n    \n    // Step 4: Distribute to channels\n    console.log('Distributing to channels...');\n    const distribution = await distributeToChannels(campaigns);\n    results.channels = distribution;\n    \n    // Step 5: Set up tracking\n    console.log('Setting up analytics tracking...');\n    await setupTracking(campaigns);\n    \n  } catch (error) {\n    console.error('Awareness processing error:', error);\n    results.metrics.errors.push({\n      type: 'processing_error',\n      message: error.message,\n      timestamp: new Date().toISOString()\n    });\n  }\n  \n  return results;\n}\n\n// Process incoming contacts\nasync function processIncomingContacts() {\n  const contacts = $input.all().map(item => item.json);\n  \n  return contacts.map(contact => {\n    // Enrich contact data\n    const enriched = {\n      ...contact,\n      // Demographics\n      age_group: categorizeAge(contact.age),\n      income_bracket: categorizeIncome(contact.income),\n      location_type: categorizeLocation(contact.zip),\n      \n      // Behavioral\n      digital_presence: calculateDigitalPresence(contact),\n      engagement_potential: calculateEngagementPotential(contact),\n      channel_preference: identifyChannelPreference(contact),\n      \n      // Vehicle preferences\n      vehicle_segment: identifyVehicleSegment(contact),\n      budget_range: calculateBudgetRange(contact),\n      purchase_timeline: estimatePurchaseTimeline(contact),\n      \n      // Marketing\n      awareness_score: 0, // Starting score\n      touchpoints: [],\n      last_interaction: null,\n      stage_entry: new Date().toISOString()\n    };\n    \n    return enriched;\n  });\n}\n\n// Segment contacts for awareness campaigns\nfunction segmentAwarenessContacts(contacts) {\n  const segments = [\n    {\n      id: 'first_time_visitors',\n      name: 'First Time Visitors',\n      criteria: c => !c.previous_visits || c.previous_visits === 0,\n      contacts: [],\n      strategy: 'welcome_series',\n      priority: 'high'\n    },\n    {\n      id: 'research_mode',\n      name: 'Research Mode',\n      criteria: c => c.content_views > 5 && !c.form_submissions,\n      contacts: [],\n      strategy: 'educational_content',\n      priority: 'medium'\n    },\n    {\n      id: 'price_shoppers',\n      name: 'Price Shoppers',\n      criteria: c => c.price_page_views > 2,\n      contacts: [],\n      strategy: 'value_proposition',\n      priority: 'high'\n    },\n    {\n      id: 'brand_explorers',\n      name: 'Brand Explorers',\n      criteria: c => c.brand_pages_viewed && c.brand_pages_viewed.length > 1,\n      contacts: [],\n      strategy: 'brand_comparison',\n      priority: 'medium'\n    },\n    {\n      id: 'mobile_first',\n      name: 'Mobile First Users',\n      criteria: c => c.device_type === 'mobile',\n      contacts: [],\n      strategy: 'mobile_optimized',\n      priority: 'medium'\n    },\n    {\n      id: 'social_referred',\n      name: 'Social Media Referrals',\n      criteria: c => c.traffic_source && c.traffic_source.includes('social'),\n      contacts: [],\n      strategy: 'social_engagement',\n      priority: 'high'\n    },\n    {\n      id: 'dormant_leads',\n      name: 'Dormant Re-engagement',\n      criteria: c => c.days_since_last_visit > 30,\n      contacts: [],\n      strategy: 'reactivation',\n      priority: 'low'\n    }\n  ];\n  \n  // Assign contacts to segments\n  contacts.forEach(contact => {\n    segments.forEach(segment => {\n      if (segment.criteria(contact)) {\n        segment.contacts.push(contact);\n      }\n    });\n  });\n  \n  // Filter out empty segments\n  return segments.filter(s => s.contacts.length > 0);\n}\n\n// Create awareness campaigns\nasync function createAwarenessCampaigns(segments) {\n  const campaigns = [];\n  \n  for (const segment of segments) {\n    const campaign = {\n      id: `awareness_${segment.id}_${Date.now()}`,\n      segment_id: segment.id,\n      segment_name: segment.name,\n      contact_count: segment.contacts.length,\n      strategy: segment.strategy,\n      priority: segment.priority,\n      created: new Date().toISOString(),\n      status: 'active',\n      channels: [],\n      content: {},\n      schedule: {},\n      tracking: {}\n    };\n    \n    // Design campaign based on strategy\n    switch (segment.strategy) {\n      case 'welcome_series':\n        campaign.content = createWelcomeContent();\n        campaign.channels = ['email', 'sms'];\n        campaign.schedule = { type: 'immediate', followup_days: [1, 3, 7] };\n        break;\n        \n      case 'educational_content':\n        campaign.content = createEducationalContent();\n        campaign.channels = ['email', 'social'];\n        campaign.schedule = { type: 'drip', interval_days: 2, duration_days: 14 };\n        break;\n        \n      case 'value_proposition':\n        campaign.content = createValueContent();\n        campaign.channels = ['email', 'display'];\n        campaign.schedule = { type: 'immediate', retarget_after_hours: 24 };\n        break;\n        \n      case 'brand_comparison':\n        campaign.content = createComparisonContent();\n        campaign.channels = ['email'];\n        campaign.schedule = { type: 'scheduled', send_hour: 10 };\n        break;\n        \n      case 'mobile_optimized':\n        campaign.content = createMobileContent();\n        campaign.channels = ['sms', 'push'];\n        campaign.schedule = { type: 'immediate' };\n        break;\n        \n      case 'social_engagement':\n        campaign.content = createSocialContent();\n        campaign.channels = ['social', 'email'];\n        campaign.schedule = { type: 'optimized', best_time: true };\n        break;\n        \n      case 'reactivation':\n        campaign.content = createReactivationContent();\n        campaign.channels = ['email', 'display'];\n        campaign.schedule = { type: 'scheduled', send_hour: 18 };\n        break;\n    }\n    \n    // Set up tracking\n    campaign.tracking = {\n      utm_source: 'awareness',\n      utm_medium: campaign.channels[0],\n      utm_campaign: campaign.id,\n      pixels: ['facebook', 'google', 'microsoft'],\n      events: ['view', 'click', 'submit', 'chat']\n    };\n    \n    campaigns.push(campaign);\n  }\n  \n  return campaigns;\n}\n\n// Distribute campaigns to channels\nasync function distributeToChannels(campaigns) {\n  const distribution = {\n    email: [],\n    sms: [],\n    social: [],\n    display: []\n  };\n  \n  for (const campaign of campaigns) {\n    // Email distribution\n    if (campaign.channels.includes('email')) {\n      distribution.email.push({\n        campaign_id: campaign.id,\n        template: campaign.content.email_template,\n        subject: campaign.content.email_subject,\n        recipients: campaign.contact_count,\n        schedule: campaign.schedule,\n        personalization: true,\n        a_b_test: campaign.priority === 'high'\n      });\n    }\n    \n    // SMS distribution\n    if (campaign.channels.includes('sms')) {\n      distribution.sms.push({\n        campaign_id: campaign.id,\n        message: campaign.content.sms_message,\n        recipients: campaign.contact_count,\n        schedule: campaign.schedule,\n        compliance: 'TCPA',\n        opt_out: true\n      });\n    }\n    \n    // Social distribution\n    if (campaign.channels.includes('social')) {\n      distribution.social.push({\n        campaign_id: campaign.id,\n        platforms: ['facebook', 'instagram'],\n        content: campaign.content.social_posts,\n        targeting: {\n          custom_audience: true,\n          lookalike: campaign.priority === 'high',\n          interests: campaign.content.interests\n        },\n        budget: calculateSocialBudget(campaign)\n      });\n    }\n    \n    // Display ads distribution\n    if (campaign.channels.includes('display')) {\n      distribution.display.push({\n        campaign_id: campaign.id,\n        networks: ['google_display', 'programmatic'],\n        creatives: campaign.content.display_ads,\n        targeting: {\n          remarketing: true,\n          contextual: campaign.content.keywords,\n          placement: campaign.content.placements\n        },\n        budget: calculateDisplayBudget(campaign)\n      });\n    }\n  }\n  \n  return distribution;\n}\n\n// Content creation functions\nfunction createWelcomeContent() {\n  return {\n    email_template: 'welcome_series_1',\n    email_subject: 'Welcome to Swickard - Your Journey Starts Here',\n    sms_message: 'Welcome to Swickard! 🚗 Exclusive offers await. Reply STOP to opt out.',\n    cta: 'Explore Our Inventory',\n    value_props: [\n      'Largest Selection in the Region',\n      'Best Price Guarantee',\n      'Lifetime Warranty Available'\n    ]\n  };\n}\n\nfunction createEducationalContent() {\n  return {\n    email_template: 'education_series',\n    email_subject: 'Car Buying 101: Everything You Need to Know',\n    social_posts: [\n      'Did you know? The best time to buy a car is...',\n      '5 Things to Check Before Buying Used',\n      'Financing Tips That Save You Thousands'\n    ],\n    interests: ['automotive', 'personal_finance', 'consumer_advice']\n  };\n}\n\nfunction createValueContent() {\n  return {\n    email_template: 'value_showcase',\n    email_subject: 'See How Much You Can Save at Swickard',\n    display_ads: {\n      sizes: ['728x90', '300x250', '160x600'],\n      message: 'Save up to $5,000 on Select Models'\n    },\n    keywords: ['car deals', 'auto savings', 'best price']\n  };\n}\n\nfunction createComparisonContent() {\n  return {\n    email_template: 'brand_comparison',\n    email_subject: 'Toyota vs Honda: Which is Right for You?',\n    comparison_chart: true,\n    expert_reviews: true,\n    test_drive_cta: true\n  };\n}\n\nfunction createMobileContent() {\n  return {\n    sms_message: '📱 Tap to view our inventory on your phone. Easy browsing, instant quotes!',\n    push_notification: 'New arrivals matching your preferences',\n    mobile_landing: 'mobile_optimized_inventory'\n  };\n}\n\nfunction createSocialContent() {\n  return {\n    social_posts: [\n      'Check out our latest arrivals! 🚗✨',\n      'Customer spotlight: Sarah found her dream car!',\n      'This week\'s special: 0% APR on select models'\n    ],\n    email_template: 'social_exclusive',\n    email_subject: 'Exclusive Offer for Our Social Media Followers'\n  };\n}\n\nfunction createReactivationContent() {\n  return {\n    email_template: 'win_back',\n    email_subject: 'We Miss You! Here\'s $500 Off Your Next Purchase',\n    display_ads: {\n      message: 'Come Back for Exclusive Savings',\n      offer_code: 'COMEBACK500'\n    },\n    urgency: 'Offer expires in 7 days'\n  };\n}\n\n// Helper functions\nfunction categorizeAge(age) {\n  if (!age) return 'unknown';\n  if (age < 25) return 'gen_z';\n  if (age < 40) return 'millennial';\n  if (age < 55) return 'gen_x';\n  return 'boomer';\n}\n\nfunction categorizeIncome(income) {\n  if (!income) return 'unknown';\n  if (income < 30000) return 'budget';\n  if (income < 60000) return 'moderate';\n  if (income < 100000) return 'comfortable';\n  return 'affluent';\n}\n\nfunction categorizeLocation(zip) {\n  // Simple urban/suburban/rural categorization\n  // In production, use actual geographic data\n  return 'suburban';\n}\n\nfunction calculateDigitalPresence(contact) {\n  let score = 0;\n  if (contact.email) score += 25;\n  if (contact.phone) score += 25;\n  if (contact.social_profiles) score += 25;\n  if (contact.app_installed) score += 25;\n  return score;\n}\n\nfunction calculateEngagementPotential(contact) {\n  let score = 50; // Base score\n  if (contact.previous_purchases) score += 20;\n  if (contact.referral_source) score += 10;\n  if (contact.content_views > 5) score += 10;\n  if (contact.email_opens > 0) score += 10;\n  return Math.min(score, 100);\n}\n\nfunction identifyChannelPreference(contact) {\n  if (contact.sms_opted_in) return 'sms';\n  if (contact.email_opens > contact.sms_clicks) return 'email';\n  if (contact.social_interactions > 0) return 'social';\n  return 'multi';\n}\n\nfunction identifyVehicleSegment(contact) {\n  // Based on browsing behavior\n  if (contact.viewed_luxury) return 'luxury';\n  if (contact.viewed_trucks) return 'truck';\n  if (contact.viewed_suvs) return 'suv';\n  if (contact.viewed_electric) return 'ev';\n  return 'sedan';\n}\n\nfunction calculateBudgetRange(contact) {\n  const income = contact.income || 50000;\n  const min = Math.floor(income * 0.15);\n  const max = Math.floor(income * 0.35);\n  return { min, max };\n}\n\nfunction estimatePurchaseTimeline(contact) {\n  if (contact.urgency_signals > 3) return '0-30 days';\n  if (contact.research_depth > 5) return '30-60 days';\n  if (contact.comparison_tools_used) return '60-90 days';\n  return '90+ days';\n}\n\nfunction calculateSocialBudget(campaign) {\n  const base = 100;\n  const perContact = 0.5;\n  const priorityMultiplier = campaign.priority === 'high' ? 2 : 1;\n  return (base + (campaign.contact_count * perContact)) * priorityMultiplier;\n}\n\nfunction calculateDisplayBudget(campaign) {\n  const base = 200;\n  const perContact = 0.3;\n  const priorityMultiplier = campaign.priority === 'high' ? 1.5 : 1;\n  return (base + (campaign.contact_count * perContact)) * priorityMultiplier;\n}\n\nasync function setupTracking(campaigns) {\n  // Set up conversion tracking for each campaign\n  campaigns.forEach(campaign => {\n    console.log(`Setting up tracking for campaign ${campaign.id}`);\n  });\n}\n\n// Execute main function\nconst awarenessResults = await processAwarenessStage();\n\n// Prepare output\nconst output = [];\n\n// Add summary\noutput.push({\n  json: {\n    type: 'awareness_summary',\n    ...awarenessResults\n  }\n});\n\n// Add individual campaign details\nawarenessResults.campaigns.forEach(campaign => {\n  output.push({\n    json: {\n      type: 'awareness_campaign',\n      ...campaign\n    }\n  });\n});\n\n// Add segment details\nawarenessResults.segments.forEach(segment => {\n  segment.contacts.forEach(contact => {\n    output.push({\n      json: {\n        type: 'awareness_contact',\n        segment_id: segment.id,\n        segment_name: segment.name,\n        ...contact\n      }\n    });\n  });\n});\n\nreturn output;"
+      },
+      "id": "awareness-processor",
+      "name": "Awareness Stage Processor",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "resource": "campaign",
+        "operation": "trigger",
+        "campaignId": "={{ $json.campaign_id }}",
+        "additionalFields": {
+          "data": {
+            "dataValueUi": {
+              "dataValues": [
+                {
+                  "key": "segment",
+                  "value": "={{ $json.segment_name }}"
+                },
+                {
+                  "key": "priority",
+                  "value": "={{ $json.priority }}"
+                },
+                {
+                  "key": "contact_count",
+                  "value": "={{ $json.contact_count }}"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "id": "customerio-campaign",
+      "name": "Trigger Customer.io Campaign",
+      "type": "n8n-nodes-base.customerIo",
+      "typeVersion": 1,
+      "position": [650, 300],
+      "credentials": {
+        "customerIoApi": {
+          "id": "customerio-api",
+          "name": "Customer.io API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://api.metricool.com/v1/campaigns/awareness",
+        "method": "POST",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "={{ $credentials.metricoolApiKey }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "campaigns",
+              "value": "={{ $json.channels.social }}"
+            }
+          ]
+        }
+      },
+      "id": "metricool-social",
+      "name": "Launch Social Campaigns",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO `{{ $json.projectId || 'your-project' }}.marketing.awareness_campaigns` (campaign_id, segment_id, segment_name, contact_count, strategy, priority, channels, status, created_at) VALUES ('{{ $json.campaign_id }}', '{{ $json.segment_id }}', '{{ $json.segment_name }}', {{ $json.contact_count }}, '{{ $json.strategy }}', '{{ $json.priority }}', '{{ $json.channels.join(',') }}', '{{ $json.status }}', '{{ $json.created }}')"
+      },
+      "id": "bigquery-log",
+      "name": "Log to BigQuery",
+      "type": "n8n-nodes-base.googleBigQuery",
+      "typeVersion": 2,
+      "position": [1050, 300],
+      "credentials": {
+        "googleBigQueryOAuth2Api": {
+          "id": "bigquery-oauth",
+          "name": "BigQuery OAuth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Awareness Stage Workflow\n\n### Purpose:\nProcess new contacts entering the awareness stage of the customer journey\n\n### Features:\n1. **Contact Enrichment** - Demographics, behavior, preferences\n2. **Smart Segmentation** - 7 awareness segments\n3. **Multi-Channel Campaigns** - Email, SMS, Social, Display\n4. **Content Personalization** - Segment-specific messaging\n5. **Analytics Tracking** - Full funnel attribution\n\n### Segments:\n- First Time Visitors\n- Research Mode\n- Price Shoppers\n- Brand Explorers\n- Mobile First\n- Social Referred\n- Dormant Leads\n\n### Channels:\n- Customer.io (Email)\n- Twilio (SMS)\n- Metricool (Social)\n- Google/Facebook (Display)",
+        "height": 500,
+        "width": 300
+      },
+      "id": "documentation",
+      "name": "Workflow Documentation",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [50, 50]
+    }
+  ],
+  "connections": {
+    "Awareness Trigger": {
+      "main": [
+        [
+          {
+            "node": "Awareness Stage Processor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Awareness Stage Processor": {
+      "main": [
+        [
+          {
+            "node": "Trigger Customer.io Campaign",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Trigger Customer.io Campaign": {
+      "main": [
+        [
+          {
+            "node": "Launch Social Campaigns",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Launch Social Campaigns": {
+      "main": [
+        [
+          {
+            "node": "Log to BigQuery",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "v1",
+  "id": "awareness-stage",
+  "tags": [
+    {
+      "name": "awareness"
+    },
+    {
+      "name": "customer-journey"
+    },
+    {
+      "name": "marketing"
+    }
+  ]
+}

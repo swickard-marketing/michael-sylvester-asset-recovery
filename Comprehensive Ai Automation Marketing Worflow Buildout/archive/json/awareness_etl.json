@@ -1,0 +1,167 @@
+{
+  "name": "Awareness ETL (Daily 2AM EST)",
+  "active": false,
+  "nodes": [
+    {
+      "parameters": {
+        "triggerTimes": {
+          "item": [
+            { "hour": 2, "minute": 0 }
+          ],
+          "timezone": "America/New_York"
+        }
+      },
+      "id": "Cron",
+      "name": "Cron",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [260, 200]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "string": [
+            { "name": "ga4PropertyId", "value": "YOUR_GA4_PROPERTY_ID" },
+            { "name": "gadsCustomerId", "value": "YOUR_GOOGLE_ADS_CUSTOMER_ID" },
+            { "name": "fbAdAccountId", "value": "YOUR_FACEBOOK_AD_ACCOUNT_ID" },
+            { "name": "gbpAccountId", "value": "YOUR_GBP_ACCOUNT_ID" },
+            { "name": "testUrl", "value": "https://www.example.com" },
+            { "name": "dateStart", "value": "yesterday" },
+            { "name": "dateEnd", "value": "yesterday" }
+          ]
+        }
+      },
+      "id": "Prepare Params",
+      "name": "Prepare Params",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [480, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "authentication": "oAuth2",
+        "url": "https://analyticsdata.googleapis.com/v1beta/properties/{{ $json.ga4PropertyId }}:runReport",
+        "jsonParameters": true,
+        "options": {
+          "bodyContentType": "json"
+        },
+        "sendBody": true,
+        "responseFormat": "json",
+        "bodyParametersJson": "={\n  \"dateRanges\": [{\n    \"startDate\": \"{{$json.dateStart}}\",\n    \"endDate\": \"{{$json.dateEnd}}\"\n  }],\n  \"dimensions\": [{\"name\": \"sessionDefaultChannelGroup\"}],\n  \"metrics\": [{\"name\": \"sessions\"},{\"name\": \"totalUsers\"},{\"name\": \"engagedSessions\"}]\n}"
+      },
+      "id": "GA4 Report",
+      "name": "GA4 Report",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [720, 120]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://googleads.googleapis.com/v15/customers/{{ $json.gadsCustomerId }}/googleAds:searchStream",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [ { "name": "developer-token", "value": "={{$credentials.googleAdsDeveloperToken}}" } ] },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"query\": \"SELECT campaign.name, metrics.impressions, metrics.clicks, metrics.ctr, metrics.cost_micros FROM campaign WHERE segments.date DURING YESTERDAY\"\n}",
+        "authentication": "oAuth2"
+      },
+      "id": "Google Ads",
+      "name": "Google Ads",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [720, 200]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "authentication": "oAuth2",
+        "url": "https://graph.facebook.com/v18.0/act_{{ $json.fbAdAccountId }}/insights",
+        "responseFormat": "json",
+        "queryParameters": {
+          "parameters": [
+            { "name": "fields", "value": "campaign_name,spend,impressions,clicks,actions" },
+            { "name": "time_range", "value": "={\\\"since\\\":\\\"{{$json.dateStart}}\\\",\\\"until\\\":\\\"{{$json.dateEnd}}\\\"}" }
+          ]
+        }
+      },
+      "id": "Facebook Insights",
+      "name": "Facebook Insights",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [720, 280]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://www.googleapis.com/pagespeedonline/v5/runPagespeed",
+        "responseFormat": "json",
+        "queryParameters": {
+          "parameters": [
+            { "name": "url", "value": "={{$json.testUrl}}" },
+            { "name": "strategy", "value": "mobile" },
+            { "name": "key", "value": "=YOUR_PAGESPEED_API_KEY" }
+          ]
+        }
+      },
+      "id": "PageSpeed",
+      "name": "PageSpeed Insights",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [720, 360]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "authentication": "oAuth2",
+        "url": "https://mybusinessbusinessinformation.googleapis.com/v1/accounts/{{$json.gbpAccountId}}/locations",
+        "responseFormat": "json"
+      },
+      "id": "GBP Locations",
+      "name": "Google Business Profile",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [720, 440]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Normalize disparate API responses into a unified structure\nconst out = [];\nfor (const item of items) {\n  const j = item.json || {};\n  if (j.dimensionHeaders) {\n    out.push({ json: { source: 'ga4', payload: j, run_at: new Date().toISOString() } });\n  } else if (j.results || j.streamingResponses) {\n    out.push({ json: { source: 'google_ads', payload: j, run_at: new Date().toISOString() } });\n  } else if (j.data || j.insights) {\n    out.push({ json: { source: 'facebook_ads', payload: j, run_at: new Date().toISOString() } });\n  } else if (j.lighthouseResult || j.originLoadingExperience) {\n    out.push({ json: { source: 'pagespeed', payload: j, run_at: new Date().toISOString() } });\n  } else if (j.locations) {\n    out.push({ json: { source: 'google_business_profile', payload: j, run_at: new Date().toISOString() } });\n  }\n}\nreturn out;"
+      },
+      "id": "Normalize",
+      "name": "Normalize",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 2,
+      "position": [960, 200]
+    },
+    {
+      "parameters": {
+        "resource": "database",
+        "operation": "insert",
+        "projectId": "YOUR_PROJECT_ID",
+        "datasetId": "marketing",
+        "tableId": "awareness_daily",
+        "rows": "={{ $items().map(i => i.json) }}"
+      },
+      "id": "BigQuery Insert",
+      "name": "BigQuery Insert",
+      "type": "n8n-nodes-base.googleBigQuery",
+      "typeVersion": 2,
+      "position": [1200, 200]
+    }
+  ],
+  "connections": {
+    "Cron": { "main": [[{ "node": "Prepare Params", "type": "main", "index": 0 }]] },
+    "Prepare Params": { "main": [[{ "node": "GA4 Report", "type": "main", "index": 0 }, { "node": "Google Ads", "type": "main", "index": 0 }, { "node": "Facebook Insights", "type": "main", "index": 0 }, { "node": "PageSpeed Insights", "type": "main", "index": 0 }, { "node": "Google Business Profile", "type": "main", "index": 0 }]] },
+    "GA4 Report": { "main": [[{ "node": "Normalize", "type": "main", "index": 0 }]] },
+    "Google Ads": { "main": [[{ "node": "Normalize", "type": "main", "index": 0 }]] },
+    "Facebook Insights": { "main": [[{ "node": "Normalize", "type": "main", "index": 0 }]] },
+    "PageSpeed Insights": { "main": [[{ "node": "Normalize", "type": "main", "index": 0 }]] },
+    "Google Business Profile": { "main": [[{ "node": "Normalize", "type": "main", "index": 0 }]] },
+    "Normalize": { "main": [[{ "node": "BigQuery Insert", "type": "main", "index": 0 }]] }
+  }
+}
+
+

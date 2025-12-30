@@ -1,0 +1,30 @@
+{
+  "mcpServers": {
+    "n8n-mcp": {
+      "type": "stdio",
+      "command": "cmd",
+      "args": [
+        "/c",
+        "npx",
+        "-y",
+        "n8n-mcp"
+      ],
+      "env": {
+        "MCP_MODE": "stdio",
+        "LOG_LEVEL": "error",
+        "N8N_API_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI2YzRlZmFmZi04Njc1LTRjMDYtYWM4Yi02ZTU2YTlhMjkwZDEiLCJpc3MiOiJuOG4iLCJhdWQiOiJwdWJsaWMtYXBpIiwiaWF0IjoxNzYyMjE0MTk0LCJleHAiOjE3NjQ3NDg4MDB9.uH1Ff0mF9hjKh7ANfRq3zPg2SVwInPhQw9ZlZfcspcQ",
+        "N8N_API_URL": "https://swickardmarketing.app.n8n.cloud"
+      }
+    },
+    "chrome-devtools": {
+      "type": "stdio",
+      "command": "cmd",
+      "args": [
+        "/c",
+        "npx",
+        "chrome-devtools-mcp@latest",
+        "--browser-url=http://127.0.0.1:9222"
+      ]
+    }
+  }
+}

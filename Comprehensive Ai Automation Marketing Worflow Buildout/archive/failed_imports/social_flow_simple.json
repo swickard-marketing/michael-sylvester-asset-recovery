@@ -1,0 +1,157 @@
+{
+  "name": "Social Media Flow Simple",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "webhook/social",
+        "responseMode": "onReceived",
+        "httpMethod": "POST"
+      },
+      "id": "webhook1",
+      "name": "Social Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Social scoring based on journey stage\nconst items = [];\nfor (const item of $input.all()) {\n  const data = item.json;\n  let social_action = 'monitor';\n  let platform = 'facebook';\n  \n  // Determine action by stage\n  if (data.journey_stage === 'awareness') {\n    social_action = 'brand_post';\n    platform = 'facebook,instagram';\n  } else if (data.journey_stage === 'consideration') {\n    social_action = 'nurture_post';\n    platform = 'facebook,instagram';\n  } else if (data.journey_stage === 'intent') {\n    social_action = 'retargeting_ad';\n    platform = 'facebook';\n  } else if (data.journey_stage === 'conversion') {\n    social_action = 'conversion_ad';\n    platform = 'facebook,instagram';\n  }\n  \n  items.push({\n    json: {\n      ...data,\n      social_action: social_action,\n      platforms: platform,\n      timestamp: new Date().toISOString()\n    }\n  });\n}\nreturn items;"
+      },
+      "id": "code1",
+      "name": "Social Scoring",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://api.metricool.com/v1/posts",
+        "method": "POST",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-Key",
+              "value": "YOUR_METRICOOL_API_KEY"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "accounts",
+              "value": "={{ $json.platforms }}"
+            },
+            {
+              "name": "content",
+              "value": "={{ $json.social_action }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "http1",
+      "name": "Metricool Post",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "resource": "customer",
+        "operation": "upsert",
+        "id": "={{ $json.user_id }}",
+        "email": "={{ $json.email }}",
+        "additionalFields": {}
+      },
+      "id": "cio1",
+      "name": "Update Customer.io",
+      "type": "n8n-nodes-base.customerIo",
+      "typeVersion": 1,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "social_campaigns",
+        "dataMode": "defineBelow",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldName": "user_id",
+              "fieldValue": "={{ $json.user_id }}"
+            },
+            {
+              "fieldName": "social_action",
+              "fieldValue": "={{ $json.social_action }}"
+            },
+            {
+              "fieldName": "timestamp",
+              "fieldValue": "={{ $json.timestamp }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "bq1",
+      "name": "Log to BigQuery",
+      "type": "n8n-nodes-base.googleBigQuery",
+      "typeVersion": 2,
+      "position": [1050, 300]
+    }
+  ],
+  "connections": {
+    "Social Webhook": {
+      "main": [
+        [
+          {
+            "node": "Social Scoring",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Social Scoring": {
+      "main": [
+        [
+          {
+            "node": "Metricool Post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Metricool Post": {
+      "main": [
+        [
+          {
+            "node": "Update Customer.io",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Customer.io": {
+      "main": [
+        [
+          {
+            "node": "Log to BigQuery",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {},
+  "versionId": "v1",
+  "id": "social001",
+  "tags": []
+}

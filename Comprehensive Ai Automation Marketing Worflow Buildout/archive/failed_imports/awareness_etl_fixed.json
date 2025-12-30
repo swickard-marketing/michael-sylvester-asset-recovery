@@ -1,0 +1,426 @@
+{
+  "name": "Awareness Stage ETL - Customer.io Integration",
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "error_handler"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "triggerTimes": {
+          "item": [
+            {
+              "hour": 2,
+              "minute": 0
+            }
+          ]
+        },
+        "timezone": "America/New_York"
+      },
+      "id": "cron-trigger",
+      "name": "Daily ETL Trigger",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [260, 300]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "string": [
+            {
+              "name": "ga4PropertyId",
+              "value": "YOUR_GA4_PROPERTY_ID"
+            },
+            {
+              "name": "gadsCustomerId",
+              "value": "YOUR_GOOGLE_ADS_CUSTOMER_ID"
+            },
+            {
+              "name": "fbAdAccountId",
+              "value": "YOUR_FACEBOOK_AD_ACCOUNT_ID"
+            },
+            {
+              "name": "gbpAccountId",
+              "value": "YOUR_GBP_ACCOUNT_ID"
+            },
+            {
+              "name": "dateStart",
+              "value": "={{ $now.minus({days: 1}).toFormat('yyyy-MM-dd') }}"
+            },
+            {
+              "name": "dateEnd",
+              "value": "={{ $now.minus({days: 1}).toFormat('yyyy-MM-dd') }}"
+            }
+          ]
+        }
+      },
+      "id": "prepare-params",
+      "name": "Prepare Parameters",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "authentication": "oAuth2",
+        "url": "https://analyticsdata.googleapis.com/v1beta/properties/{{ $json.ga4PropertyId }}:runReport",
+        "sendBody": true,
+        "bodyParameters": {
+          "json": {
+            "dateRanges": [
+              {
+                "startDate": "{{ $json.dateStart }}",
+                "endDate": "{{ $json.dateEnd }}"
+              }
+            ],
+            "dimensions": [
+              {"name": "sessionDefaultChannelGroup"},
+              {"name": "sessionSource"},
+              {"name": "sessionMedium"}
+            ],
+            "metrics": [
+              {"name": "sessions"},
+              {"name": "totalUsers"},
+              {"name": "engagedSessions"},
+              {"name": "bounceRate"},
+              {"name": "averageSessionDuration"}
+            ]
+          }
+        },
+        "options": {}
+      },
+      "id": "ga4-report",
+      "name": "GA4 Traffic Data",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [660, 200],
+      "credentials": {
+        "googleOAuth2Api": {
+          "id": "3",
+          "name": "Google OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://googleads.googleapis.com/v15/customers/{{ $json.gadsCustomerId }}/googleAds:searchStream",
+        "authentication": "oAuth2",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "developer-token",
+              "value": "={{ $credentials.googleAdsDeveloperToken }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "json": {
+            "query": "SELECT campaign.name, campaign.id, metrics.impressions, metrics.clicks, metrics.ctr, metrics.cost_micros, metrics.conversions FROM campaign WHERE segments.date DURING YESTERDAY"
+          }
+        }
+      },
+      "id": "google-ads",
+      "name": "Google Ads Data",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [660, 300],
+      "credentials": {
+        "googleOAuth2Api": {
+          "id": "3",
+          "name": "Google OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "authentication": "oAuth2",
+        "url": "https://graph.facebook.com/v18.0/act_{{ $json.fbAdAccountId }}/insights",
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "fields",
+              "value": "campaign_name,campaign_id,spend,impressions,clicks,ctr,actions,reach,frequency"
+            },
+            {
+              "name": "time_range",
+              "value": "{\"since\":\"{{ $json.dateStart }}\",\"until\":\"{{ $json.dateEnd }}\"}"
+            },
+            {
+              "name": "level",
+              "value": "campaign"
+            }
+          ]
+        }
+      },
+      "id": "facebook-insights",
+      "name": "Facebook Ads Data",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [660, 400],
+      "credentials": {
+        "facebookOAuth2Api": {
+          "id": "4",
+          "name": "Facebook OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Process and normalize awareness data for JOMP analysis\nconst processedData = [];\nconst timestamp = new Date().toISOString();\n\n// Process GA4 data\nif ($input.item.json.rows) {\n  const ga4Data = $input.item.json.rows.map(row => ({\n    source: 'ga4',\n    channel: row.dimensionValues[0]?.value || 'unknown',\n    source_detail: row.dimensionValues[1]?.value || 'unknown',\n    medium: row.dimensionValues[2]?.value || 'unknown',\n    sessions: parseInt(row.metricValues[0]?.value || 0),\n    users: parseInt(row.metricValues[1]?.value || 0),\n    engaged_sessions: parseInt(row.metricValues[2]?.value || 0),\n    bounce_rate: parseFloat(row.metricValues[3]?.value || 0),\n    avg_session_duration: parseFloat(row.metricValues[4]?.value || 0),\n    timestamp: timestamp\n  }));\n  processedData.push(...ga4Data);\n}\n\n// Process Google Ads data\nif ($input.item.json.results) {\n  const googleAdsData = $input.item.json.results.map(result => ({\n    source: 'google_ads',\n    campaign_name: result.campaign?.name || 'unknown',\n    campaign_id: result.campaign?.id || 'unknown',\n    impressions: parseInt(result.metrics?.impressions || 0),\n    clicks: parseInt(result.metrics?.clicks || 0),\n    ctr: parseFloat(result.metrics?.ctr || 0),\n    cost: parseFloat(result.metrics?.costMicros || 0) / 1000000,\n    conversions: parseFloat(result.metrics?.conversions || 0),\n    timestamp: timestamp\n  }));\n  processedData.push(...googleAdsData);\n}\n\n// Process Facebook data\nif ($input.item.json.data) {\n  const fbData = $input.item.json.data.map(item => ({\n    source: 'facebook_ads',\n    campaign_name: item.campaign_name || 'unknown',\n    campaign_id: item.campaign_id || 'unknown',\n    spend: parseFloat(item.spend || 0),\n    impressions: parseInt(item.impressions || 0),\n    clicks: parseInt(item.clicks || 0),\n    ctr: parseFloat(item.ctr || 0),\n    reach: parseInt(item.reach || 0),\n    frequency: parseFloat(item.frequency || 0),\n    timestamp: timestamp\n  }));\n  processedData.push(...fbData);\n}\n\nreturn processedData.map(item => ({json: item}));"
+      },
+      "id": "normalize-data",
+      "name": "Normalize Traffic Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [860, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO `project.dataset.awareness_traffic` (source, channel, source_detail, medium, sessions, users, engaged_sessions, bounce_rate, avg_session_duration, campaign_name, campaign_id, impressions, clicks, ctr, cost, conversions, spend, reach, frequency, timestamp) VALUES {{ $json }}",
+        "options": {}
+      },
+      "id": "bigquery-insert",
+      "name": "Store in BigQuery",
+      "type": "n8n-nodes-base.googleBigQuery",
+      "typeVersion": 2,
+      "position": [1060, 300],
+      "credentials": {
+        "googleBigQueryOAuth2Api": {
+          "id": "1",
+          "name": "BigQuery OAuth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Calculate awareness metrics for Customer.io segmentation\nconst metrics = {\n  total_impressions: 0,\n  total_clicks: 0,\n  total_spend: 0,\n  total_users: 0,\n  avg_ctr: 0,\n  top_channels: [],\n  performance_score: 0\n};\n\nconst channelMap = new Map();\n\nfor (const item of $input.all()) {\n  const data = item.json;\n  \n  metrics.total_impressions += data.impressions || 0;\n  metrics.total_clicks += data.clicks || 0;\n  metrics.total_spend += data.cost || data.spend || 0;\n  metrics.total_users += data.users || 0;\n  \n  // Track channel performance\n  const channel = data.channel || data.source;\n  if (channel) {\n    if (!channelMap.has(channel)) {\n      channelMap.set(channel, {\n        impressions: 0,\n        clicks: 0,\n        users: 0\n      });\n    }\n    const ch = channelMap.get(channel);\n    ch.impressions += data.impressions || 0;\n    ch.clicks += data.clicks || 0;\n    ch.users += data.users || 0;\n  }\n}\n\n// Calculate average CTR\nif (metrics.total_impressions > 0) {\n  metrics.avg_ctr = (metrics.total_clicks / metrics.total_impressions) * 100;\n}\n\n// Get top 3 channels\nmetrics.top_channels = Array.from(channelMap.entries())\n  .sort((a, b) => b[1].users - a[1].users)\n  .slice(0, 3)\n  .map(([channel, data]) => ({\n    channel,\n    users: data.users,\n    ctr: data.impressions > 0 ? (data.clicks / data.impressions) * 100 : 0\n  }));\n\n// Calculate performance score (0-100)\nconst ctrScore = Math.min(metrics.avg_ctr * 20, 40); // Max 40 points\nconst reachScore = Math.min(metrics.total_users / 100, 30); // Max 30 points\nconst engagementScore = Math.min(metrics.total_clicks / 50, 30); // Max 30 points\nmetrics.performance_score = Math.round(ctrScore + reachScore + engagementScore);\n\nreturn [{json: metrics}];"
+      },
+      "id": "calculate-metrics",
+      "name": "Calculate JOMP Metrics",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1260, 300]
+    },
+    {
+      "parameters": {
+        "resource": "event",
+        "operation": "trackAnonymous",
+        "eventName": "awareness_daily_metrics",
+        "additionalFields": {
+          "data": {
+            "dataProperty": [
+              {
+                "key": "total_impressions",
+                "value": "={{ $json.total_impressions }}"
+              },
+              {
+                "key": "total_clicks",
+                "value": "={{ $json.total_clicks }}"
+              },
+              {
+                "key": "total_spend",
+                "value": "={{ $json.total_spend }}"
+              },
+              {
+                "key": "total_users",
+                "value": "={{ $json.total_users }}"
+              },
+              {
+                "key": "avg_ctr",
+                "value": "={{ $json.avg_ctr }}"
+              },
+              {
+                "key": "performance_score",
+                "value": "={{ $json.performance_score }}"
+              },
+              {
+                "key": "top_channels",
+                "value": "={{ JSON.stringify($json.top_channels) }}"
+              },
+              {
+                "key": "run_date",
+                "value": "={{ $now.toISO() }}"
+              }
+            ]
+          }
+        }
+      },
+      "id": "customerio-event",
+      "name": "Send to Customer.io",
+      "type": "n8n-nodes-base.customerIo",
+      "typeVersion": 1,
+      "position": [1460, 300],
+      "credentials": {
+        "customerIoApi": {
+          "id": "2",
+          "name": "Customer.io API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "segment",
+        "operation": "add",
+        "segmentId": "awareness_stage_active",
+        "identifiers": [
+          {
+            "identifier": "email",
+            "value": "analytics@swickard.com"
+          }
+        ]
+      },
+      "id": "customerio-segment",
+      "name": "Update Awareness Segment",
+      "type": "n8n-nodes-base.customerIo",
+      "typeVersion": 1,
+      "position": [1660, 300],
+      "credentials": {
+        "customerIoApi": {
+          "id": "2",
+          "name": "Customer.io API"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Daily ETL Trigger": {
+      "main": [
+        [
+          {
+            "node": "Prepare Parameters",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Parameters": {
+      "main": [
+        [
+          {
+            "node": "GA4 Traffic Data",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Google Ads Data",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Facebook Ads Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GA4 Traffic Data": {
+      "main": [
+        [
+          {
+            "node": "Normalize Traffic Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Ads Data": {
+      "main": [
+        [
+          {
+            "node": "Normalize Traffic Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Facebook Ads Data": {
+      "main": [
+        [
+          {
+            "node": "Normalize Traffic Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Traffic Data": {
+      "main": [
+        [
+          {
+            "node": "Store in BigQuery",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store in BigQuery": {
+      "main": [
+        [
+          {
+            "node": "Calculate JOMP Metrics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate JOMP Metrics": {
+      "main": [
+        [
+          {
+            "node": "Send to Customer.io",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send to Customer.io": {
+      "main": [
+        [
+          {
+            "node": "Update Awareness Segment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "id": "1",
+      "name": "awareness"
+    },
+    {
+      "id": "2",
+      "name": "etl"
+    },
+    {
+      "id": "3",
+      "name": "customer.io"
+    },
+    {
+      "id": "4",
+      "name": "jomp"
+    }
+  ],
+  "triggerCount": 0,
+  "updatedAt": "2025-08-07T10:00:00.000Z",
+  "versionId": "v1"
+}

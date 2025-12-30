@@ -1,0 +1,36 @@
+{
+  "name": "Import Test (Legacy)",
+  "active": false,
+  "settings": {},
+  "nodes": [
+    {
+      "parameters": {
+        "triggerTimes": {
+          "item": [ { "hour": 9, "minute": 0 } ],
+          "timezone": "America/New_York"
+        }
+      },
+      "name": "Cron",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [260, 180]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": false,
+        "values": {
+          "string": [ { "name": "test", "value": "ok" } ]
+        }
+      },
+      "name": "Set",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [480, 180]
+    }
+  ],
+  "connections": {
+    "Cron": { "main": [[{ "node": "Set", "type": "main", "index": 0 }]] }
+  }
+}
+
+

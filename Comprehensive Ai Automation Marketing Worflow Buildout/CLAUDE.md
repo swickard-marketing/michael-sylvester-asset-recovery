@@ -1,0 +1,2 @@
+- Always create a readme next to each schema for future refrencing.
+- Always add a note to each n8n workflow build that explains the flow

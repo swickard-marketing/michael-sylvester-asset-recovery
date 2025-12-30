@@ -1,0 +1,308 @@
+{
+  "name": "Google Ads Dynamic Pricing & Retargeting Controller",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours",
+              "hoursInterval": 1
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Hourly Schedule",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "projectId": "={{ $credentials.projectId }}",
+        "location": "US",
+        "query": "-- Fetch Non-Converted Prospects for Retargeting\nWITH unconverted_prospects AS (\n  SELECT \n    Client_Email as email,\n    Client_Cell as phone,\n    Client_First_Name as first_name,\n    Client_Last_Name as last_name,\n    Prospect_Created_Date as lead_date,\n    Prospect_Status,\n    Desired_Make as interest_make,\n    Desired_Model as interest_model,\n    Desired_Year as interest_year,\n    Trade_Make,\n    Trade_Model,\n    DATETIME_DIFF(CURRENT_DATETIME(), Prospect_Created_Date, DAY) as days_since_lead\n  FROM `{{ $json.projectId }}.marketing.prospects`\n  WHERE Prospect_Status NOT IN ('Sold - Integration', 'Sold')\n    AND Prospect_Status_Type NOT IN ('Duplicate', 'Closed')\n    AND DATE(Prospect_Created_Date) >= DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY)\n    AND Dealer_Contact_Consent_for_Email = 'Y'\n),\npaying_customers AS (\n  SELECT \n    Client_Email as email,\n    Sales_Deal_Date as transaction_date,\n    'vehicle_sale' as transaction_type\n  FROM `{{ $json.projectId }}.marketing.sales`\n  WHERE DATE(Sales_Deal_Date) >= DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY)\n  \n  UNION ALL\n  \n  SELECT \n    Client_Email as email,\n    CS_RO_Date as transaction_date,\n    'service' as transaction_type\n  FROM `{{ $json.projectId }}.marketing.service`\n  WHERE DATE(CS_RO_Date) >= DATE_SUB(CURRENT_DATE(), INTERVAL 30 DAY)\n    AND CS_Rec_Service_Accept = 'Y'\n)\nSELECT \n  p.*,\n  pc.transaction_date as last_transaction,\n  pc.transaction_type,\n  CASE \n    WHEN pc.email IS NOT NULL THEN 'existing_customer_upsell'\n    WHEN p.days_since_lead < 7 THEN 'hot_retarget'\n    WHEN p.days_since_lead < 30 THEN 'warm_retarget'\n    WHEN p.days_since_lead < 60 THEN 'cool_retarget'\n    ELSE 'win_back'\n  END as retarget_segment,\n  CASE\n    WHEN p.interest_make IN ('Mercedes-Benz', 'Lexus') THEN 'luxury'\n    WHEN p.interest_make IN ('Toyota', 'Honda') THEN 'value'\n    WHEN p.interest_make LIKE '%TRUCK%' OR p.interest_model LIKE '%SPRINTER%' THEN 'commercial'\n    ELSE 'general'\n  END as audience_type\nFROM unconverted_prospects p\nLEFT JOIN paying_customers pc ON p.email = pc.email\nWHERE pc.email IS NULL OR pc.transaction_type = 'service'"
+      },
+      "id": "fetch-prospects",
+      "name": "Fetch Retargeting Candidates",
+      "type": "n8n-nodes-base.googleBigQuery",
+      "typeVersion": 2,
+      "position": [450, 200],
+      "credentials": {
+        "googleBigQueryOAuth2Api": {
+          "id": "bigquery-oauth",
+          "name": "BigQuery OAuth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "projectId": "={{ $credentials.projectId }}",
+        "location": "US",
+        "query": "-- Fetch Current Campaign Performance\nSELECT \n  campaign_id,\n  campaign_name,\n  SUM(impressions) as impressions,\n  SUM(clicks) as clicks,\n  SUM(conversions) as conversions,\n  SUM(cost) as total_cost,\n  AVG(cpc) as avg_cpc,\n  AVG(conversion_rate) as conversion_rate,\n  CASE \n    WHEN SUM(conversions) > 0 THEN SUM(cost) / SUM(conversions)\n    ELSE 999999\n  END as cpa\nFROM `{{ $json.projectId }}.marketing.google_ads_performance`\nWHERE DATE(date) >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)\nGROUP BY campaign_id, campaign_name"
+      },
+      "id": "fetch-performance",
+      "name": "Fetch Ad Performance",
+      "type": "n8n-nodes-base.googleBigQuery",
+      "typeVersion": 2,
+      "position": [450, 400],
+      "credentials": {
+        "googleBigQueryOAuth2Api": {
+          "id": "bigquery-oauth",
+          "name": "BigQuery OAuth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// GOOGLE ADS DYNAMIC PRICING & RETARGETING ENGINE\n// Process prospects and calculate optimal budgets\n\nconst prospects = $('Fetch Retargeting Candidates').all();\nconst performance = $('Fetch Ad Performance').all();\n\n// Configuration\nconst config = {\n  budgets: {\n    total_daily: 5000,\n    min_campaign: 50,\n    max_campaign: 1000,\n    hot_multiplier: 2.0,\n    warm_multiplier: 1.5,\n    cool_multiplier: 1.0,\n    service_multiplier: 1.8\n  },\n  targets: {\n    cpa: 500,\n    conversion_rate: 0.02,\n    roas: 4.0\n  },\n  safety: {\n    max_daily_increase: 0.5,\n    max_daily_decrease: 0.3,\n    pause_cpa_threshold: 1000\n  }\n};\n\n// Segment prospects into retargeting groups\nfunction segmentProspects(prospects) {\n  const segments = {\n    hot_retarget: [],\n    warm_retarget: [],\n    cool_retarget: [],\n    win_back: [],\n    service_to_sales: [],\n    existing_customer_upsell: []\n  };\n  \n  prospects.forEach(prospect => {\n    const segment = prospect.json.retarget_segment;\n    if (segments[segment]) {\n      segments[segment].push(prospect.json);\n    }\n  });\n  \n  return segments;\n}\n\n// Calculate budget for each segment\nfunction calculateSegmentBudgets(segments, totalBudget) {\n  const budgetAllocation = {};\n  let totalScore = 0;\n  \n  // Calculate scores for each segment\n  Object.keys(segments).forEach(segmentName => {\n    const segment = segments[segmentName];\n    let score = segment.length; // Base score on audience size\n    \n    // Apply multipliers\n    switch(segmentName) {\n      case 'hot_retarget':\n        score *= config.budgets.hot_multiplier;\n        break;\n      case 'warm_retarget':\n        score *= config.budgets.warm_multiplier;\n        break;\n      case 'service_to_sales':\n        score *= config.budgets.service_multiplier;\n        break;\n      case 'existing_customer_upsell':\n        score *= 1.5;\n        break;\n      default:\n        score *= config.budgets.cool_multiplier;\n    }\n    \n    budgetAllocation[segmentName] = {\n      score: score,\n      audience_size: segment.length,\n      prospects: segment\n    };\n    totalScore += score;\n  });\n  \n  // Allocate budget proportionally\n  Object.keys(budgetAllocation).forEach(segmentName => {\n    const allocation = budgetAllocation[segmentName];\n    const percentage = allocation.score / totalScore;\n    let budget = totalBudget * percentage;\n    \n    // Apply min/max constraints\n    budget = Math.max(config.budgets.min_campaign, budget);\n    budget = Math.min(config.budgets.max_campaign, budget);\n    \n    allocation.daily_budget = Math.round(budget * 100) / 100;\n    allocation.budget_percentage = Math.round(percentage * 10000) / 100;\n  });\n  \n  return budgetAllocation;\n}\n\n// Adjust budgets based on performance\nfunction adjustBudgetsForPerformance(budgetAllocation, performance) {\n  performance.forEach(campaign => {\n    const perf = campaign.json;\n    \n    // Find matching segment\n    Object.keys(budgetAllocation).forEach(segmentName => {\n      if (perf.campaign_name && perf.campaign_name.toLowerCase().includes(segmentName.replace('_', ' '))) {\n        const allocation = budgetAllocation[segmentName];\n        \n        // Adjust based on CPA\n        if (perf.cpa < config.targets.cpa * 0.8) {\n          allocation.daily_budget *= 1.2; // Increase budget for efficient campaigns\n          allocation.adjustment_reason = 'Below target CPA';\n        } else if (perf.cpa > config.targets.cpa * 1.2) {\n          allocation.daily_budget *= 0.8; // Decrease budget for expensive campaigns\n          allocation.adjustment_reason = 'Above target CPA';\n        }\n        \n        // Pause if CPA too high\n        if (perf.cpa > config.safety.pause_cpa_threshold) {\n          allocation.paused = true;\n          allocation.pause_reason = 'CPA exceeds threshold';\n        }\n        \n        // Store performance metrics\n        allocation.current_performance = {\n          cpa: perf.cpa,\n          conversion_rate: perf.conversion_rate,\n          impressions: perf.impressions,\n          clicks: perf.clicks,\n          conversions: perf.conversions\n        };\n      }\n    });\n  });\n  \n  return budgetAllocation;\n}\n\n// Create campaign configurations\nfunction createCampaignConfigs(budgetAllocation) {\n  const campaigns = [];\n  \n  Object.keys(budgetAllocation).forEach(segmentName => {\n    const allocation = budgetAllocation[segmentName];\n    \n    if (allocation.audience_size === 0 || allocation.paused) {\n      return; // Skip empty or paused segments\n    }\n    \n    const campaign = {\n      name: `Retargeting - ${segmentName.replace('_', ' ').toUpperCase()}`,\n      segment: segmentName,\n      budget: {\n        daily: allocation.daily_budget,\n        monthly: allocation.daily_budget * 30\n      },\n      audience: {\n        size: allocation.audience_size,\n        emails: allocation.prospects.map(p => p.email)\n      },\n      bid_strategy: getBidStrategy(segmentName),\n      ad_groups: createAdGroups(segmentName, allocation.prospects),\n      performance: allocation.current_performance || {},\n      status: allocation.paused ? 'paused' : 'active'\n    };\n    \n    campaigns.push(campaign);\n  });\n  \n  return campaigns;\n}\n\n// Determine bid strategy based on segment\nfunction getBidStrategy(segmentName) {\n  switch(segmentName) {\n    case 'hot_retarget':\n      return 'maximize_conversions';\n    case 'service_to_sales':\n    case 'existing_customer_upsell':\n      return 'target_cpa';\n    case 'warm_retarget':\n      return 'target_cpa';\n    default:\n      return 'target_roas';\n  }\n}\n\n// Create ad groups with personalized messaging\nfunction createAdGroups(segmentName, prospects) {\n  const adGroups = [];\n  \n  // Group by interest (make/model)\n  const interests = {};\n  prospects.forEach(prospect => {\n    const key = `${prospect.interest_make || 'General'}_${prospect.interest_model || 'All'}`;\n    if (!interests[key]) {\n      interests[key] = [];\n    }\n    interests[key].push(prospect);\n  });\n  \n  // Create ad group for each interest\n  Object.keys(interests).forEach(interest => {\n    const [make, model] = interest.split('_');\n    const prospects = interests[interest];\n    \n    adGroups.push({\n      name: `${segmentName} - ${interest}`,\n      keywords: generateKeywords(make, model),\n      ads: generateAds(segmentName, make, model),\n      audience_size: prospects.length,\n      targeting: {\n        customer_match: prospects.map(p => p.email),\n        similar_audiences: true\n      }\n    });\n  });\n  \n  return adGroups;\n}\n\n// Generate relevant keywords\nfunction generateKeywords(make, model) {\n  const keywords = [];\n  \n  if (make && make !== 'General') {\n    keywords.push(`${make} deals`);\n    keywords.push(`${make} for sale`);\n    keywords.push(`${make} dealer near me`);\n  }\n  \n  if (model && model !== 'All') {\n    keywords.push(`${make} ${model}`);\n    keywords.push(`${model} price`);\n    keywords.push(`${model} lease`);\n  }\n  \n  return keywords;\n}\n\n// Generate dynamic ads\nfunction generateAds(segmentName, make, model) {\n  const ads = [];\n  \n  switch(segmentName) {\n    case 'hot_retarget':\n      ads.push({\n        headlines: [\n          `Still interested in ${model}?`,\n          `Your ${make} is waiting`,\n          'Special offer expires soon'\n        ],\n        descriptions: [\n          'Complete your purchase today and save',\n          'Exclusive pricing for returning customers'\n        ]\n      });\n      break;\n      \n    case 'service_to_sales':\n      ads.push({\n        headlines: [\n          'Time to upgrade?',\n          'Service customer special',\n          'Your loyalty pays off'\n        ],\n        descriptions: [\n          'Exclusive pricing for service customers',\n          'Extra trade-in value for you'\n        ]\n      });\n      break;\n      \n    default:\n      ads.push({\n        headlines: [\n          `${make} Sale Event`,\n          'Limited time offers',\n          'Best prices of the year'\n        ],\n        descriptions: [\n          'View our inventory online',\n          'Schedule a test drive today'\n        ]\n      });\n  }\n  \n  return ads;\n}\n\n// Main execution\nconst segmentedProspects = segmentProspects(prospects);\nconst budgetAllocation = calculateSegmentBudgets(segmentedProspects, config.budgets.total_daily);\nconst adjustedBudgets = adjustBudgetsForPerformance(budgetAllocation, performance);\nconst campaigns = createCampaignConfigs(adjustedBudgets);\n\n// Prepare output\nconst output = [];\n\n// Add summary\noutput.push({\n  json: {\n    type: 'summary',\n    total_prospects: prospects.length,\n    total_daily_budget: config.budgets.total_daily,\n    segments: Object.keys(segmentedProspects).map(seg => ({\n      name: seg,\n      count: segmentedProspects[seg].length,\n      budget: adjustedBudgets[seg].daily_budget\n    })),\n    timestamp: new Date().toISOString()\n  }\n});\n\n// Add individual campaigns\ncampaigns.forEach(campaign => {\n  output.push({\n    json: {\n      type: 'campaign',\n      ...campaign\n    }\n  });\n});\n\nreturn output;"
+      },
+      "id": "pricing-engine",
+      "name": "Dynamic Pricing & Retargeting Engine",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.type }}",
+              "operation": "equals",
+              "value2": "campaign"
+            }
+          ]
+        }
+      },
+      "id": "filter-campaigns",
+      "name": "Filter Campaigns",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 1,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "resource": "campaign",
+        "operation": "update",
+        "campaignId": "={{ $json.name }}",
+        "updateFields": {
+          "budget": "={{ $json.budget.daily }}",
+          "status": "={{ $json.status }}",
+          "biddingStrategy": "={{ $json.bid_strategy }}"
+        }
+      },
+      "id": "update-google-ads",
+      "name": "Update Google Ads Campaigns",
+      "type": "n8n-nodes-base.googleAds",
+      "typeVersion": 1,
+      "position": [1050, 300],
+      "credentials": {
+        "googleAdsOAuth2Api": {
+          "id": "google-ads-oauth",
+          "name": "Google Ads OAuth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "projectId": "={{ $credentials.projectId }}",
+        "datasetId": "marketing",
+        "tableId": "budget_adjustments",
+        "columns": "campaign_name,segment,daily_budget,audience_size,bid_strategy,status,adjusted_at",
+        "options": {}
+      },
+      "id": "log-adjustments",
+      "name": "Log Budget Adjustments",
+      "type": "n8n-nodes-base.googleBigQuery",
+      "typeVersion": 2,
+      "position": [1250, 300],
+      "credentials": {
+        "googleBigQueryOAuth2Api": {
+          "id": "bigquery-oauth",
+          "name": "BigQuery OAuth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ $json.budget.daily }}",
+              "operation": "larger",
+              "value2": 500
+            }
+          ]
+        }
+      },
+      "id": "check-threshold",
+      "name": "Check Budget Threshold",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1450, 300]
+    },
+    {
+      "parameters": {
+        "fromEmail": "n8n@dealership.com",
+        "toEmail": "marketing-manager@dealership.com",
+        "subject": "Google Ads Budget Alert - Large Adjustment",
+        "text": "Campaign: {{ $json.name }}\\nNew Daily Budget: ${{ $json.budget.daily }}\\nReason: {{ $json.performance.adjustment_reason || 'Performance optimization' }}\\nAudience Size: {{ $json.audience.size }}\\n\\nPlease review in Google Ads dashboard.",
+        "options": {}
+      },
+      "id": "send-alert",
+      "name": "Send Alert Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [1650, 400],
+      "credentials": {
+        "smtp": {
+          "id": "smtp-credentials",
+          "name": "SMTP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Google Ads Dynamic Pricing & Retargeting\\n\\n### Features:\\n1. **Hourly Execution** - Runs every hour to optimize budgets\\n2. **Prospect Retargeting** - Identifies non-converted leads\\n3. **Service Customer Upsell** - Targets service customers for sales\\n4. **Dynamic Budget Allocation** - Adjusts spend based on performance\\n5. **Safety Mechanisms** - Prevents overspending\\n\\n### Segments:\\n- Hot Retarget (< 7 days)\\n- Warm Retarget (< 30 days)\\n- Cool Retarget (< 60 days)\\n- Service to Sales\\n- Existing Customer Upsell\\n\\n### Budget Rules:\\n- Total Daily: $5,000\\n- Min Campaign: $50\\n- Max Campaign: $1,000\\n- CPA Target: $500\\n- Pause if CPA > $1,000",
+        "height": 400,
+        "width": 300
+      },
+      "id": "documentation",
+      "name": "Workflow Documentation",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [50, 100]
+    },
+    {
+      "parameters": {
+        "content": "## Google Ads Dynamic Retargeting - Flow Explanation\\n\\n### Workflow Flow:\\n1. **Hourly Schedule** → Runs every hour for continuous optimization\\n\\n2. **Parallel Data Fetch:**\\n   - **Fetch Retargeting Candidates** → Gets non-converted prospects from BigQuery\\n   - **Fetch Ad Performance** → Gets current campaign metrics\\n\\n3. **Dynamic Pricing Engine** → Core logic that:\\n   - Segments prospects (hot/warm/cold/service-to-sales)\\n   - Calculates budget allocation based on performance\\n   - Adjusts for CPA, conversion rates, and ROI\\n   - Creates personalized ad groups\\n\\n4. **Filter Campaigns** → Only processes valid campaign updates\\n\\n5. **Update Google Ads** → Applies new budgets via API\\n\\n6. **Log Adjustments** → Records changes in BigQuery\\n\\n7. **Check Threshold** → Identifies major budget changes (>$500)\\n\\n8. **Send Alert** → Notifies manager of significant adjustments\\n\\n### Key Logic:\\n- **Budget Multipliers**: Hot (2x), Warm (1.5x), Service-to-Sales (1.8x)\\n- **Safety Caps**: Min $50, Max $1,000 per campaign\\n- **Auto-Pause**: If CPA > $1,000\\n- **Retargeting**: Focuses on prospects who haven't converted to ANY paying customer (sales OR service)",
+        "height": 450,
+        "width": 350
+      },
+      "id": "flow-explanation",
+      "name": "Workflow Flow Explanation",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [900, 50]
+    }
+  ],
+  "connections": {
+    "Hourly Schedule": {
+      "main": [
+        [
+          {
+            "node": "Fetch Retargeting Candidates",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch Ad Performance",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Retargeting Candidates": {
+      "main": [
+        [
+          {
+            "node": "Dynamic Pricing & Retargeting Engine",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Ad Performance": {
+      "main": [
+        [
+          {
+            "node": "Dynamic Pricing & Retargeting Engine",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dynamic Pricing & Retargeting Engine": {
+      "main": [
+        [
+          {
+            "node": "Filter Campaigns",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Campaigns": {
+      "main": [
+        [
+          {
+            "node": "Update Google Ads Campaigns",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Google Ads Campaigns": {
+      "main": [
+        [
+          {
+            "node": "Log Budget Adjustments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Budget Adjustments": {
+      "main": [
+        [
+          {
+            "node": "Check Budget Threshold",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Budget Threshold": {
+      "main": [
+        [
+          {
+            "node": "Send Alert Email",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "v1",
+  "id": "google-ads-retargeting",
+  "tags": [
+    {
+      "name": "google-ads"
+    },
+    {
+      "name": "retargeting"
+    },
+    {
+      "name": "marketing"
+    }
+  ]
+}

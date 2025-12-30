@@ -1,0 +1,275 @@
+{
+  "name": "Consideration Stage Nurture - Customer.io",
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "nodes": [
+    {
+      "parameters": {
+        "triggerTimes": {
+          "item": [
+            {
+              "hour": 9,
+              "minute": 0
+            }
+          ]
+        },
+        "timezone": "America/New_York"
+      },
+      "id": "cron-trigger",
+      "name": "Daily Trigger",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [260, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT user_id, email, page_time_spent, viewed_financing_options, form_submitted, last_visit_date FROM `project.dataset.user_behavior` WHERE page_time_spent > 30 AND viewed_financing_options = TRUE AND form_submitted = FALSE AND last_visit_date >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 7 DAY)",
+        "options": {}
+      },
+      "id": "bigquery-fetch",
+      "name": "Fetch Consideration Users",
+      "type": "n8n-nodes-base.googleBigQuery",
+      "typeVersion": 2,
+      "position": [460, 300],
+      "credentials": {
+        "googleBigQueryOAuth2Api": {
+          "id": "1",
+          "name": "BigQuery OAuth"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "high-intent",
+              "leftValue": "={{ $json.page_time_spent }}",
+              "rightValue": 180,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            },
+            {
+              "id": "medium-intent",
+              "leftValue": "={{ $json.page_time_spent }}",
+              "rightValue": 60,
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "options": {}
+      },
+      "id": "segment-filter",
+      "name": "Segment Users",
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2,
+      "position": [660, 300]
+    },
+    {
+      "parameters": {
+        "resource": "customer",
+        "operation": "upsert",
+        "id": "={{ $json.user_id }}",
+        "email": "={{ $json.email }}",
+        "additionalFields": {
+          "customAttributes": {
+            "attribute": [
+              {
+                "key": "journey_stage",
+                "value": "consideration"
+              },
+              {
+                "key": "page_time_spent",
+                "value": "={{ $json.page_time_spent }}"
+              },
+              {
+                "key": "viewed_financing",
+                "value": "={{ $json.viewed_financing_options }}"
+              },
+              {
+                "key": "intent_level",
+                "value": "={{ $json.page_time_spent >= 180 ? 'high' : $json.page_time_spent >= 60 ? 'medium' : 'low' }}"
+              },
+              {
+                "key": "last_engagement",
+                "value": "={{ $now.toISO() }}"
+              }
+            ]
+          }
+        }
+      },
+      "id": "customerio-upsert",
+      "name": "Update Customer.io Profile",
+      "type": "n8n-nodes-base.customerIo",
+      "typeVersion": 1,
+      "position": [860, 300],
+      "credentials": {
+        "customerIoApi": {
+          "id": "2",
+          "name": "Customer.io API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "event",
+        "operation": "track",
+        "customerId": "={{ $json.user_id }}",
+        "eventName": "consideration_stage_nurture",
+        "additionalFields": {
+          "data": {
+            "dataProperty": [
+              {
+                "key": "intent_score",
+                "value": "={{ $json.page_time_spent }}"
+              },
+              {
+                "key": "financing_interest",
+                "value": "={{ $json.viewed_financing_options }}"
+              },
+              {
+                "key": "campaign_type",
+                "value": "consideration_nurture"
+              }
+            ]
+          }
+        }
+      },
+      "id": "customerio-event",
+      "name": "Track Nurture Event",
+      "type": "n8n-nodes-base.customerIo",
+      "typeVersion": 1,
+      "position": [1060, 300],
+      "credentials": {
+        "customerIoApi": {
+          "id": "2",
+          "name": "Customer.io API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "segment",
+        "operation": "add",
+        "segmentId": "{{ $json.page_time_spent >= 180 ? 'high_intent_consideration' : 'medium_intent_consideration' }}",
+        "identifiers": [
+          {
+            "identifier": "id",
+            "value": "={{ $json.user_id }}"
+          }
+        ]
+      },
+      "id": "customerio-segment",
+      "name": "Add to Segment",
+      "type": "n8n-nodes-base.customerIo",
+      "typeVersion": 1,
+      "position": [1260, 300],
+      "credentials": {
+        "customerIoApi": {
+          "id": "2",
+          "name": "Customer.io API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Consideration Nurture Summary\n\n**Processed:** {{ $items().length }} users\n**High Intent:** {{ $items().filter(item => item.json.page_time_spent >= 180).length }}\n**Medium Intent:** {{ $items().filter(item => item.json.page_time_spent >= 60 && item.json.page_time_spent < 180).length }}\n**Timestamp:** {{ $now.toISO() }}",
+        "options": {}
+      },
+      "id": "summary-note",
+      "name": "Processing Summary",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [1460, 200]
+    }
+  ],
+  "connections": {
+    "Daily Trigger": {
+      "main": [
+        [
+          {
+            "node": "Fetch Consideration Users",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Consideration Users": {
+      "main": [
+        [
+          {
+            "node": "Segment Users",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Segment Users": {
+      "main": [
+        [
+          {
+            "node": "Update Customer.io Profile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Customer.io Profile": {
+      "main": [
+        [
+          {
+            "node": "Track Nurture Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Track Nurture Event": {
+      "main": [
+        [
+          {
+            "node": "Add to Segment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "id": "1",
+      "name": "consideration"
+    },
+    {
+      "id": "2",
+      "name": "customer.io"
+    },
+    {
+      "id": "3",
+      "name": "nurture"
+    }
+  ],
+  "triggerCount": 0,
+  "updatedAt": "2025-08-07T10:00:00.000Z",
+  "versionId": "v1"
+}

@@ -1,0 +1,165 @@
+{
+  "name": "Consideration Stage Consolidated Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "triggerTimes": {
+          "item": [
+            {
+              "hour": 9,
+              "minute": 0
+            },
+            {
+              "hour": 14,
+              "minute": 0
+            },
+            {
+              "hour": 19,
+              "minute": 0
+            }
+          ]
+        }
+      },
+      "id": "consideration-schedule",
+      "name": "Consideration Schedule",
+      "type": "n8n-nodes-base.cron",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// CONSIDERATION STAGE ORCHESTRATOR\n// Advanced nurturing and engagement for consideration phase contacts\n\nconst config = {\n  apis: {\n    customerIo: {\n      siteId: $getNodeParameter('customerIoSiteId', 'YOUR_SITE_ID'),\n      apiKey: $getNodeParameter('customerIoApiKey', 'YOUR_API_KEY'),\n      baseUrl: 'https://track.customer.io/api/v1'\n    },\n    wrike: {\n      token: $getNodeParameter('wrikeToken', 'YOUR_WRIKE_TOKEN'),\n      baseUrl: 'https://www.wrike.com/api/v4'\n    },\n    bigQuery: {\n      projectId: $getNodeParameter('bigQueryProject', 'your-project-id'),\n      dataset: 'marketing'\n    }\n  },\n  scoring: {\n    weights: {\n      vehicle_views: 5,\n      comparison_tools: 10,\n      calculator_usage: 15,\n      brochure_download: 20,\n      test_drive_interest: 30,\n      chat_engagement: 25\n    },\n    thresholds: {\n      cold: 30,\n      warm: 60,\n      hot: 85\n    }\n  }\n};\n\n// Main consideration processor\nasync function processConsiderationStage() {\n  const results = {\n    timestamp: new Date().toISOString(),\n    stage: 'consideration',\n    segments: [],\n    nurture_tracks: [],\n    content_recommendations: [],\n    tasks_created: [],\n    lead_scores: [],\n    metrics: {\n      total_contacts: 0,\n      scored: 0,\n      nurtured: 0,\n      advanced_to_intent: 0,\n      tasks_assigned: 0,\n      errors: []\n    }\n  };\n\n  try {\n    // Step 1: Fetch consideration stage contacts\n    console.log('Fetching consideration contacts...');\n    const contacts = await fetchConsiderationContacts();\n    results.metrics.total_contacts = contacts.length;\n    \n    // Step 2: Calculate lead scores\n    console.log('Calculating lead scores...');\n    const scoredContacts = calculateLeadScores(contacts);\n    results.lead_scores = scoredContacts.map(c => ({ id: c.id, score: c.lead_score }));\n    results.metrics.scored = scoredContacts.length;\n    \n    // Step 3: Segment by behavior and interest\n    console.log('Segmenting contacts...');\n    const segments = segmentConsiderationContacts(scoredContacts);\n    results.segments = segments;\n    \n    // Step 4: Create nurture tracks\n    console.log('Creating nurture tracks...');\n    const nurtureTracks = await createNurtureTracks(segments);\n    results.nurture_tracks = nurtureTracks;\n    results.metrics.nurtured = nurtureTracks.reduce((sum, t) => sum + t.contact_count, 0);\n    \n    // Step 5: Generate content recommendations\n    console.log('Generating content recommendations...');\n    const recommendations = generateContentRecommendations(scoredContacts);\n    results.content_recommendations = recommendations;\n    \n    // Step 6: Create sales tasks for hot leads\n    console.log('Creating sales tasks...');\n    const tasks = await createSalesTasks(scoredContacts);\n    results.tasks_created = tasks;\n    results.metrics.tasks_assigned = tasks.length;\n    \n    // Step 7: Identify intent signals\n    console.log('Identifying intent signals...');\n    const intentReady = identifyIntentSignals(scoredContacts);\n    results.metrics.advanced_to_intent = intentReady.length;\n    \n  } catch (error) {\n    console.error('Consideration processing error:', error);\n    results.metrics.errors.push({\n      type: 'processing_error',\n      message: error.message,\n      timestamp: new Date().toISOString()\n    });\n  }\n  \n  return results;\n}\n\n// Fetch contacts in consideration stage\nasync function fetchConsiderationContacts() {\n  // In production, fetch from Customer.io or database\n  // Simulating fetched data\n  const sampleContacts = $input.all().map(item => item.json);\n  \n  // Enrich with consideration-specific data\n  return sampleContacts.map(contact => ({\n    ...contact,\n    // Behavioral data\n    vehicle_views: contact.vehicle_views || Math.floor(Math.random() * 20),\n    comparison_count: contact.comparison_count || Math.floor(Math.random() * 5),\n    calculator_uses: contact.calculator_uses || Math.floor(Math.random() * 3),\n    content_downloads: contact.content_downloads || [],\n    chat_sessions: contact.chat_sessions || 0,\n    \n    // Interest data\n    preferred_makes: contact.preferred_makes || [],\n    preferred_types: contact.preferred_types || [],\n    budget_range: contact.budget_range || { min: 20000, max: 40000 },\n    financing_interest: contact.financing_interest || false,\n    trade_in_interest: contact.trade_in_interest || false,\n    \n    // Timeline\n    first_visit: contact.first_visit || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),\n    last_visit: contact.last_visit || new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),\n    consideration_days: contact.consideration_days || 15\n  }));\n}\n\n// Calculate lead scores\nfunction calculateLeadScores(contacts) {\n  return contacts.map(contact => {\n    let score = 0;\n    \n    // Apply weighted scoring\n    score += contact.vehicle_views * config.scoring.weights.vehicle_views;\n    score += contact.comparison_count * config.scoring.weights.comparison_tools;\n    score += contact.calculator_uses * config.scoring.weights.calculator_usage;\n    score += contact.content_downloads.length * config.scoring.weights.brochure_download;\n    score += contact.chat_sessions * config.scoring.weights.chat_engagement;\n    \n    // Bonus points for specific actions\n    if (contact.test_drive_request) score += config.scoring.weights.test_drive_interest;\n    if (contact.financing_interest) score += 10;\n    if (contact.trade_in_interest) score += 10;\n    \n    // Time decay factor\n    const daysSinceLastVisit = Math.floor((Date.now() - new Date(contact.last_visit).getTime()) / (24 * 60 * 60 * 1000));\n    const timeFactor = Math.max(0.5, 1 - (daysSinceLastVisit * 0.05));\n    score = Math.round(score * timeFactor);\n    \n    // Determine temperature\n    let temperature = 'cold';\n    if (score >= config.scoring.thresholds.hot) temperature = 'hot';\n    else if (score >= config.scoring.thresholds.warm) temperature = 'warm';\n    \n    return {\n      ...contact,\n      lead_score: Math.min(100, score),\n      lead_temperature: temperature,\n      score_breakdown: {\n        behavior_score: Math.round(score * 0.6),\n        interest_score: Math.round(score * 0.3),\n        recency_score: Math.round(score * 0.1)\n      }\n    };\n  });\n}\n\n// Segment consideration contacts\nfunction segmentConsiderationContacts(contacts) {\n  const segments = [\n    {\n      id: 'comparison_shoppers',\n      name: 'Active Comparison Shoppers',\n      criteria: c => c.comparison_count >= 3 && c.lead_temperature !== 'cold',\n      contacts: [],\n      nurture_strategy: 'comparison_content'\n    },\n    {\n      id: 'financing_focused',\n      name: 'Financing Focused',\n      criteria: c => c.financing_interest && c.calculator_uses > 0,\n      contacts: [],\n      nurture_strategy: 'financing_education'\n    },\n    {\n      id: 'trade_in_interested',\n      name: 'Trade-In Interested',\n      criteria: c => c.trade_in_interest,\n      contacts: [],\n      nurture_strategy: 'trade_in_value'\n    },\n    {\n      id: 'model_specific',\n      name: 'Model Specific Interest',\n      criteria: c => c.preferred_makes.length === 1 && c.vehicle_views > 5,\n      contacts: [],\n      nurture_strategy: 'model_deep_dive'\n    },\n    {\n      id: 'budget_conscious',\n      name: 'Budget Conscious',\n      criteria: c => c.budget_range.max < 30000,\n      contacts: [],\n      nurture_strategy: 'value_options'\n    },\n    {\n      id: 'premium_shoppers',\n      name: 'Premium Shoppers',\n      criteria: c => c.budget_range.min > 50000,\n      contacts: [],\n      nurture_strategy: 'premium_experience'\n    },\n    {\n      id: 'test_drive_ready',\n      name: 'Test Drive Ready',\n      criteria: c => c.lead_temperature === 'hot' || c.test_drive_request,\n      contacts: [],\n      nurture_strategy: 'test_drive_scheduling'\n    }\n  ];\n  \n  // Assign contacts to segments\n  contacts.forEach(contact => {\n    segments.forEach(segment => {\n      if (segment.criteria(contact)) {\n        segment.contacts.push(contact);\n      }\n    });\n  });\n  \n  return segments.filter(s => s.contacts.length > 0);\n}\n\n// Create nurture tracks\nasync function createNurtureTracks(segments) {\n  const tracks = [];\n  \n  for (const segment of segments) {\n    const track = {\n      id: `nurture_${segment.id}_${Date.now()}`,\n      segment_id: segment.id,\n      segment_name: segment.name,\n      contact_count: segment.contacts.length,\n      strategy: segment.nurture_strategy,\n      content_sequence: [],\n      touchpoints: [],\n      expected_duration_days: 14,\n      success_metric: 'advancement_to_intent'\n    };\n    \n    // Define content sequence based on strategy\n    switch (segment.nurture_strategy) {\n      case 'comparison_content':\n        track.content_sequence = [\n          { day: 1, type: 'email', content: 'comparison_guide' },\n          { day: 3, type: 'retargeting', content: 'comparison_tool_ad' },\n          { day: 5, type: 'email', content: 'expert_reviews' },\n          { day: 7, type: 'sms', content: 'personal_consultation' },\n          { day: 10, type: 'email', content: 'side_by_side_video' }\n        ];\n        break;\n        \n      case 'financing_education':\n        track.content_sequence = [\n          { day: 1, type: 'email', content: 'financing_guide' },\n          { day: 2, type: 'calculator', content: 'payment_estimator' },\n          { day: 4, type: 'email', content: 'credit_tips' },\n          { day: 7, type: 'phone', content: 'finance_consultation' },\n          { day: 10, type: 'email', content: 'pre_approval_offer' }\n        ];\n        break;\n        \n      case 'trade_in_value':\n        track.content_sequence = [\n          { day: 1, type: 'email', content: 'trade_in_estimator' },\n          { day: 3, type: 'sms', content: 'instant_valuation' },\n          { day: 5, type: 'email', content: 'maximize_trade_value' },\n          { day: 8, type: 'appointment', content: 'appraisal_scheduling' }\n        ];\n        break;\n        \n      case 'model_deep_dive':\n        track.content_sequence = [\n          { day: 1, type: 'email', content: 'model_features' },\n          { day: 3, type: 'video', content: 'virtual_tour' },\n          { day: 5, type: 'email', content: 'owner_testimonials' },\n          { day: 7, type: 'event', content: 'exclusive_preview' },\n          { day: 10, type: 'test_drive', content: 'vip_test_drive' }\n        ];\n        break;\n        \n      case 'value_options':\n        track.content_sequence = [\n          { day: 1, type: 'email', content: 'budget_friendly_options' },\n          { day: 3, type: 'email', content: 'certified_preowned' },\n          { day: 5, type: 'promotion', content: 'special_financing' },\n          { day: 8, type: 'email', content: 'total_cost_ownership' }\n        ];\n        break;\n        \n      case 'premium_experience':\n        track.content_sequence = [\n          { day: 1, type: 'email', content: 'luxury_collection' },\n          { day: 3, type: 'event', content: 'vip_event_invite' },\n          { day: 5, type: 'concierge', content: 'personal_shopper' },\n          { day: 7, type: 'experience', content: 'home_test_drive' }\n        ];\n        break;\n        \n      case 'test_drive_scheduling':\n        track.content_sequence = [\n          { day: 0, type: 'sms', content: 'schedule_test_drive' },\n          { day: 1, type: 'email', content: 'test_drive_prep' },\n          { day: 2, type: 'reminder', content: 'appointment_reminder' },\n          { day: 3, type: 'follow_up', content: 'test_drive_feedback' }\n        ];\n        track.expected_duration_days = 7;\n        break;\n    }\n    \n    // Define touchpoints\n    track.touchpoints = track.content_sequence.map(item => ({\n      ...item,\n      scheduled_date: new Date(Date.now() + item.day * 24 * 60 * 60 * 1000).toISOString(),\n      personalized: true,\n      track_engagement: true\n    }));\n    \n    tracks.push(track);\n  }\n  \n  return tracks;\n}\n\n// Generate content recommendations\nfunction generateContentRecommendations(contacts) {\n  const recommendations = [];\n  \n  contacts.forEach(contact => {\n    const rec = {\n      contact_id: contact.id,\n      lead_score: contact.lead_score,\n      recommended_content: [],\n      personalization_tags: []\n    };\n    \n    // Base recommendations on behavior\n    if (contact.vehicle_views > 10) {\n      rec.recommended_content.push('detailed_specifications');\n      rec.recommended_content.push('360_view_tool');\n    }\n    \n    if (contact.comparison_count > 2) {\n      rec.recommended_content.push('comparison_matrix');\n      rec.recommended_content.push('expert_rankings');\n    }\n    \n    if (contact.calculator_uses > 1) {\n      rec.recommended_content.push('financing_guide');\n      rec.recommended_content.push('insurance_estimator');\n    }\n    \n    // Personalization based on preferences\n    if (contact.preferred_makes.includes('Toyota')) {\n      rec.personalization_tags.push('toyota_enthusiast');\n      rec.recommended_content.push('toyota_reliability_report');\n    }\n    \n    if (contact.preferred_types.includes('SUV')) {\n      rec.personalization_tags.push('suv_shopper');\n      rec.recommended_content.push('family_vehicle_guide');\n    }\n    \n    if (contact.budget_range.max < 30000) {\n      rec.personalization_tags.push('value_seeker');\n      rec.recommended_content.push('best_value_awards');\n    }\n    \n    // High-value content for hot leads\n    if (contact.lead_temperature === 'hot') {\n      rec.recommended_content.push('exclusive_incentives');\n      rec.recommended_content.push('priority_scheduling');\n      rec.recommended_content.push('decision_maker_packet');\n    }\n    \n    recommendations.push(rec);\n  });\n  \n  return recommendations;\n}\n\n// Create sales tasks for hot leads\nasync function createSalesTasks(contacts) {\n  const tasks = [];\n  const hotLeads = contacts.filter(c => c.lead_temperature === 'hot');\n  \n  for (const lead of hotLeads) {\n    const task = {\n      id: `task_${lead.id}_${Date.now()}`,\n      type: 'sales_follow_up',\n      priority: 'high',\n      contact_id: lead.id,\n      contact_name: lead.name || 'Unknown',\n      contact_score: lead.lead_score,\n      assigned_to: assignSalesRep(lead),\n      due_date: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),\n      title: `Follow up with hot lead: ${lead.name || lead.email}`,\n      description: `Lead score: ${lead.lead_score}. Interested in: ${lead.preferred_makes.join(', ')}. Budget: $${lead.budget_range.min}-$${lead.budget_range.max}`,\n      action_items: [\n        'Call within 24 hours',\n        'Send personalized vehicle recommendations',\n        'Schedule test drive if interested',\n        'Prepare financing options'\n      ],\n      wrike_folder: 'sales_tasks'\n    };\n    \n    // Create task in Wrike\n    try {\n      const wrikeTask = await createWrikeTask(task);\n      task.wrike_id = wrikeTask.id;\n      task.wrike_permalink = wrikeTask.permalink;\n    } catch (error) {\n      console.error('Failed to create Wrike task:', error);\n      task.wrike_error = error.message;\n    }\n    \n    tasks.push(task);\n  }\n  \n  return tasks;\n}\n\n// Identify contacts ready for intent stage\nfunction identifyIntentSignals(contacts) {\n  const intentSignals = [\n    c => c.lead_score >= 75,\n    c => c.test_drive_request === true,\n    c => c.financing_interest && c.calculator_uses >= 3,\n    c => c.vehicle_views >= 15 && c.comparison_count >= 3,\n    c => c.chat_sessions >= 2,\n    c => c.content_downloads.includes('pricing_guide')\n  ];\n  \n  return contacts.filter(contact => {\n    const signalCount = intentSignals.filter(signal => signal(contact)).length;\n    return signalCount >= 2; // Need at least 2 signals\n  }).map(contact => ({\n    ...contact,\n    advancement_reason: 'multiple_intent_signals',\n    next_stage: 'intent',\n    advancement_date: new Date().toISOString()\n  }));\n}\n\n// Helper function to assign sales rep\nfunction assignSalesRep(lead) {\n  // Round-robin or skill-based assignment\n  const reps = [\n    { id: 'rep1', name: 'John Smith', specialty: 'luxury' },\n    { id: 'rep2', name: 'Jane Doe', specialty: 'budget' },\n    { id: 'rep3', name: 'Mike Johnson', specialty: 'trucks' },\n    { id: 'rep4', name: 'Sarah Williams', specialty: 'family' }\n  ];\n  \n  // Match by specialty if possible\n  if (lead.budget_range.min > 50000) {\n    return reps.find(r => r.specialty === 'luxury').id;\n  } else if (lead.budget_range.max < 30000) {\n    return reps.find(r => r.specialty === 'budget').id;\n  } else if (lead.preferred_types.includes('Truck')) {\n    return reps.find(r => r.specialty === 'trucks').id;\n  } else if (lead.preferred_types.includes('SUV')) {\n    return reps.find(r => r.specialty === 'family').id;\n  }\n  \n  // Default round-robin\n  return reps[Math.floor(Math.random() * reps.length)].id;\n}\n\n// Create task in Wrike\nasync function createWrikeTask(task) {\n  // Simulated Wrike task creation\n  // In production, make actual API call\n  return {\n    id: `wrike_${task.id}`,\n    permalink: `https://www.wrike.com/open.htm?id=${task.id}`,\n    status: 'Active',\n    importance: 'High'\n  };\n}\n\n// Execute main function\nconst considerationResults = await processConsiderationStage();\n\n// Prepare output\nconst output = [];\n\n// Add summary\noutput.push({\n  json: {\n    type: 'consideration_summary',\n    ...considerationResults\n  }\n});\n\n// Add nurture track details\nconsiderationResults.nurture_tracks.forEach(track => {\n  output.push({\n    json: {\n      type: 'nurture_track',\n      ...track\n    }\n  });\n});\n\n// Add task details\nconsiderationResults.tasks_created.forEach(task => {\n  output.push({\n    json: {\n      type: 'sales_task',\n      ...task\n    }\n  });\n});\n\nreturn output;"
+      },
+      "id": "consideration-processor",
+      "name": "Consideration Stage Processor",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "resource": "segment",
+        "operation": "add",
+        "segmentId": "={{ $json.segment_id }}",
+        "customerIds": "={{ $json.contacts.map(c => c.id).join(',') }}"
+      },
+      "id": "customerio-segment",
+      "name": "Add to Customer.io Segment",
+      "type": "n8n-nodes-base.customerIo",
+      "typeVersion": 1,
+      "position": [650, 300],
+      "credentials": {
+        "customerIoApi": {
+          "id": "customerio-api",
+          "name": "Customer.io API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "task",
+        "operation": "create",
+        "title": "={{ $json.title }}",
+        "description": "={{ $json.description }}",
+        "additionalFields": {
+          "assigneeIds": "={{ $json.assigned_to }}",
+          "importance": "High",
+          "dates": {
+            "due": "={{ $json.due_date }}"
+          }
+        }
+      },
+      "id": "wrike-task",
+      "name": "Create Wrike Task",
+      "type": "n8n-nodes-base.wrike",
+      "typeVersion": 1,
+      "position": [850, 300],
+      "credentials": {
+        "wrikeApi": {
+          "id": "wrike-api",
+          "name": "Wrike API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO `{{ $json.projectId || 'your-project' }}.marketing.consideration_nurture` (track_id, segment_id, segment_name, contact_count, strategy, content_sequence, duration_days, created_at) VALUES ('{{ $json.track_id }}', '{{ $json.segment_id }}', '{{ $json.segment_name }}', {{ $json.contact_count }}, '{{ $json.strategy }}', '{{ JSON.stringify($json.content_sequence) }}', {{ $json.expected_duration_days }}, '{{ $now.toISO() }}')"
+      },
+      "id": "bigquery-log",
+      "name": "Log to BigQuery",
+      "type": "n8n-nodes-base.googleBigQuery",
+      "typeVersion": 2,
+      "position": [1050, 300],
+      "credentials": {
+        "googleBigQueryOAuth2Api": {
+          "id": "bigquery-oauth",
+          "name": "BigQuery OAuth"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Consideration Schedule": {
+      "main": [
+        [
+          {
+            "node": "Consideration Stage Processor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Consideration Stage Processor": {
+      "main": [
+        [
+          {
+            "node": "Add to Customer.io Segment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Add to Customer.io Segment": {
+      "main": [
+        [
+          {
+            "node": "Create Wrike Task",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Wrike Task": {
+      "main": [
+        [
+          {
+            "node": "Log to BigQuery",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "v1",
+  "id": "consideration-stage",
+  "tags": [
+    {
+      "name": "consideration"
+    },
+    {
+      "name": "nurture"
+    },
+    {
+      "name": "lead-scoring"
+    }
+  ]
+}
